@@ -1,0 +1,31 @@
+[Unit]
+Description=Pad Deck kiosk (Chromium full-screen on the Pad's display)
+After=systemd-user-sessions.service pad-deck-server.service
+Wants=pad-deck-server.service
+Conflicts=getty@tty1.service
+
+[Service]
+User=deck
+PAMName=login
+TTYPath=/dev/tty1
+StandardInput=tty
+TTYReset=yes
+TTYVHangup=yes
+UtmpIdentifier=tty1
+Environment=XDG_SESSION_TYPE=wayland
+# Invisible cursor theme (see pad-setup.sh): it's a touchscreen.
+Environment=XCURSOR_THEME=pad-invisible XCURSOR_SIZE=24
+# Remote debugging listens on the Pad's localhost only (reach it over an SSH tunnel).
+# CPU rasterization: the Mali GPU stalls ~300 ms re-drawing the keys' blurred shadows (laggy dragging).
+ExecStart=/usr/bin/cage -d -- /usr/bin/chromium --kiosk --ozone-platform=wayland \
+  --noerrdialogs --disable-infobars --no-first-run --disable-session-crashed-bubble \
+  --disable-features=Translate --overscroll-history-navigation=0 --disable-pinch \
+  --password-store=basic --check-for-update-interval=31536000 \
+  --autoplay-policy=no-user-gesture-required --remote-debugging-port=9222 \
+  --disable-gpu-rasterization \
+  "http://localhost:8099/?kiosk"
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=graphical.target

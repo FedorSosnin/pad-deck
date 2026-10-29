@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Pad Deck</title>
+<link rel="preload" href="fonts/yellowtail-badge.woff2" as="font" type="font/woff2" crossorigin>
+<style>
+  @font-face { font-family: "Barlow SC"; font-weight: 500; src: url(fonts/barlow-semi-condensed-500.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow SC"; font-weight: 600; src: url(fonts/barlow-semi-condensed-600.woff2) format("woff2"); }
+
+  :root {
+    --chassis: #0d0e10;
+    --key: #2b2d32;
+    --led-green: #4dff86;
+    --led-red: #ff3b4e;
+    --accent: #4dff86;
+    --text: #eceef2;
+    --muted: #8a8f99;
+    --font: "Barlow SC", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; color: var(--text); overflow: hidden; font-family: var(--font);
+    background: var(--chassis) url(carbon.jpg) center / cover no-repeat;
+    user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; touch-action: none; }
+  button, input, select { font: inherit; color: inherit; }
+  body.kiosk, body.kiosk * { cursor: none !important; }
+  /* Start-up: just the carbon until the intro animation slides everything in. */
+  body.intro #bar, body.intro #main { visibility: hidden; }
+
+  /* Start-up badge: stick-on 3D chrome car lettering sitting on the carbon, with a gleam. */
+  /* Yellowtail (Google Fonts, OFL), subset to the badge's letters: a 1950s chrome car-script feel. */
+  @font-face { font-family: "Pad Script"; src: url(fonts/yellowtail-badge.woff2) format("woff2"); }
+  #badge { position: fixed; left: 0; right: 0; top: 0; height: 100%; display: grid; place-items: center; z-index: 5; pointer-events: none; }
+  #badge[hidden] { display: none; }
+  #badge svg { width: 720px; max-width: 92vw; overflow: visible; animation: badge-in .9s cubic-bezier(.16,1,.3,1) both; }
+  #badge .gleam { animation: gleam 1.3s 1s ease-in-out both; }
+  @keyframes badge-in { from { opacity: 0; transform: scale(.94); } }
+  @keyframes gleam { from { transform: translateX(-260px); } to { transform: translateX(980px); } }
+
+  /* ---------- Top bar ---------- */
+  #bar { height: 60px; display: flex; align-items: center; gap: 10px; padding: 0 10px 0 14px;
+    font: 600 14px var(--font); letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+    background: linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.25)); border-bottom: 1px solid rgba(255,255,255,.05); }
+  .chip { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border-radius: 14px;
+    background: rgba(0,0,0,.45); box-shadow: inset 0 1px 2px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.05); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: #2a2a2a; box-shadow: inset 0 1px 1px rgba(0,0,0,.6); }
+  #conn.online .dot { background: var(--led-green); box-shadow: 0 0 6px var(--led-green); }
+  #conn.connecting .dot { background: #ffc23d; box-shadow: 0 0 6px #ffc23d; }
+  #conn.offline .dot { background: var(--led-red); box-shadow: 0 0 6px var(--led-red); }
+  .chip.on { color: #fff; }
+  .chip.on .dot { background: var(--led-red); box-shadow: 0 0 8px var(--led-red); }
+  .barbtn { border: 0; height: 32px; min-width: 36px; padding: 0 12px; border-radius: 8px; color: #d6d9df;
+    font: 600 13px var(--font); letter-spacing: .08em; text-transform: uppercase;
+    background: #2b2d32 url(noise.png); box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 3px 0 #141518, 0 4px 6px rgba(0,0,0,.4);
+    transform: translateY(-2px); transition: transform .05s, box-shadow .05s; }
+  .barbtn:active { transform: translateY(1px); box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 0 0 #141518; }
+  .barbtn.primary { background-color: #1f7a45; color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 3px 0 #0e3b21, 0 4px 6px rgba(0,0,0,.4); }
+  .barbtn.icon { font-size: 24px; padding: 0; width: 56px; height: 46px; border-radius: 11px; }
+  .barbtn.big { height: 44px; padding: 0 18px; font-size: 14px; align-items: center; justify-content: center; }
+  .stepper .barbtn { height: 44px; min-width: 44px; font-size: 20px; }
+  .edit-only { display: none !important; }
+  body.editing .edit-only { display: inline-flex !important; }
+  body.editing .live-only { display: none !important; }
+  .stepper { align-items: center; gap: 6px; }
+  .stepper b { color: #fff; min-width: 14px; text-align: center; }
+
+  /* ---------- Grid of keys ---------- */
+  #main { height: calc(100% - 60px); display: flex; }
+  #stage { position: relative; flex: 1; min-width: 0; overflow: hidden; }
+  /* Each page is its own GPU layer: swiping/sliding then just moves already-drawn pixels instead of
+     re-drawing the keys every frame (which lagged behind the finger on the Pad). */
+  /* All pages share the same absolute box, so promoting a pre-drawn page to the visible one changes no layout. */
+  .grid { position: absolute; inset: 0; padding: 12px 6px 18px 12px; display: grid; gap: 14px 12px; will-change: transform; }
+  .grid.leaving { pointer-events: none; }
+  /* Each key on its own layer: pressing one re-draws just that key, not the whole page. */
+  .grid > .slot { will-change: transform; }
+  .empty-hint { grid-area: 1 / 1 / -1 / -1; place-self: center; color: rgba(255,255,255,.4); font: 600 16px var(--font);
+    letter-spacing: .1em; text-transform: uppercase; }
+
+  /* Page rail */
+  /* The rail uses the same rows, gaps and padding as the key grid, so ▲ lines up with the top row and ▼ with
+     the bottom row; the dots sit centred over the whole height. */
+  #rail { width: 70px; flex: none; display: grid; justify-items: center; row-gap: 14px; padding: 12px 12px 18px 6px; }
+  #pgUp { grid-area: 1 / 1; }
+  #pgDown { grid-area: -2 / 1; }
+  /* The arrows are keycaps too (class "btn"): same body, dished face, edge and shadow as the keys. */
+  .pgbtn { width: 52px; height: 100%; border: 0; border-radius: 16px; padding: 0; display: grid; place-items: center; color: #d6d9df; }
+  .pgbtn::before { inset: 6px; border-radius: 11px; }
+  .pgbtn svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round;
+    filter: drop-shadow(0 1px 1px rgba(0,0,0,.6)); }
+  .pgbtn:active:not(:disabled) { transform: translateY(3px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 -1px 0 rgba(0,0,0,.35), 0 0 0 var(--edge), 0 2px 4px rgba(0,0,0,.6); }
+  .pgbtn:disabled { visibility: hidden; }
+  /* Holding a dragged button over ▲/▼ flips the page. */
+  .pgbtn.flipping { color: var(--accent); outline: 3px solid var(--accent); animation: flip-pulse .45s ease-in-out infinite alternate; }
+  @keyframes flip-pulse { to { outline-color: rgba(77,255,134,.25); } }
+  #dots { grid-area: 1 / 1 / -1 / 1; align-self: center; display: flex; flex-direction: column; gap: 9px; align-items: center; pointer-events: none; }
+  #dots i { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.18); box-shadow: inset 0 1px 1px rgba(0,0,0,.6); transition: background .2s, transform .2s; }
+  #dots i.on { background: #fff; transform: scale(1.25); box-shadow: 0 0 6px rgba(255,255,255,.5); }
+  #dots i.has-live:not(.on) { background: var(--led-green); box-shadow: 0 0 6px var(--led-green); }
+  .slot { min-width: 0; min-height: 0; border-radius: 16px; }
+  .btn {
+    --bg: var(--key);
+    --edge: color-mix(in srgb, var(--bg) 45%, #000);
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6%; padding: 8% 6% 6%; color: var(--text); text-align: center; line-height: 1.1; overflow: visible;
+    font: 600 clamp(14px, 2.3vw, 22px) var(--font); letter-spacing: .02em;
+    background: var(--bg) url(noise.png);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.22),
+      inset 0 -1px 0 rgba(0,0,0,.35),
+      0 6px 0 var(--edge),
+      0 9px 14px rgba(0,0,0,.55);
+    transform: translateY(-3px);
+    transition: transform .06s ease-out, box-shadow .06s ease-out, filter .15s;
+  }
+  /* Dished key face: a slightly recessed inner plate */
+  .btn::before { content: ""; position: absolute; inset: 7px; border-radius: 11px; pointer-events: none;
+    background: radial-gradient(120% 90% at 50% 0%, rgba(255,255,255,.07), rgba(255,255,255,0) 60%);
+    box-shadow: inset 0 2px 3px rgba(0,0,0,.28), inset 0 -1px 0 rgba(255,255,255,.06); }
+  .btn > * { position: relative; }
+  .btn .ico { height: 52%; max-width: 66%; min-height: 0; display: flex; justify-content: center; pointer-events: none; }
+  .btn img { height: 100%; max-width: 100%; object-fit: contain; filter: drop-shadow(0 1px 1px rgba(0,0,0,.6)); }
+  .btn span { text-shadow: 0 1px 1px rgba(0,0,0,.6); }
+  .btn.light { color: #1b1c1f; }
+  .btn.light img { filter: invert(1) drop-shadow(0 1px 0 rgba(255,255,255,.5)); }
+  .btn.light span { text-shadow: 0 1px 0 rgba(255,255,255,.5); }
+  .btn.pressed { transform: translateY(3px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 -1px 0 rgba(0,0,0,.35), 0 0 0 var(--edge), 0 2px 4px rgba(0,0,0,.6); }
+
+  /* Status LED in the key's corner */
+  .led { position: absolute !important; top: 12px; left: 13px; width: 10px; height: 10px; border-radius: 50%;
+    background: #101112; box-shadow: inset 0 1px 1px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.12); }
+  .btn.live .led { background: var(--led-green); box-shadow: 0 0 6px 1px var(--led-green), 0 0 16px 2px rgba(77,255,134,.45), inset 0 -1px 1px rgba(0,0,0,.25); }
+  .btn.live { box-shadow: inset 0 1px 0 rgba(255,255,255,.22), inset 0 0 0 2px rgba(77,255,134,.55), 0 6px 0 var(--edge), 0 9px 18px rgba(0,0,0,.55), 0 0 22px rgba(77,255,134,.18); }
+  .btn.hot .led { background: var(--led-red); box-shadow: 0 0 6px 1px var(--led-red), 0 0 16px 2px rgba(255,59,78,.45); }
+  .btn.muted { color: rgba(255,255,255,.62); }
+  .btn.muted .ico { opacity: .72; }
+  /* Muted: a white slash drawn into the icon, with a gap cut around it in the key's colour (like a mic.slash glyph) */
+  .btn .slash { position: absolute; left: 50%; top: 12%; width: 5px; height: 76%; border-radius: 3px;
+    background: #fff; transform: translateX(-50%) rotate(-45deg);
+    box-shadow: 0 0 0 3px var(--bg), 0 1px 1px 3px rgba(0,0,0,.25); }
+  .btn.unknown { opacity: .55; }
+
+  /* ---------- Edit mode ---------- */
+  body.editing .btn.live, body.editing .btn.live .led { box-shadow: none; }
+  body.editing .btn:not(.pgbtn) { outline: 2px dashed rgba(255,255,255,.3); outline-offset: 2px; }
+  /* Edit mode, iOS-style: keys shrink a little and wiggle gently (transform only, so it runs on the GPU). */
+  body.editing .grid > .slot { transform: scale(.9); }
+  body.editing .grid > .slot.btn { animation: wiggle .32s ease-in-out infinite alternate; }
+  body.editing .grid > .slot.btn:nth-child(3n+1) { animation-delay: -.11s; animation-duration: .3s; }
+  body.editing .grid > .slot.btn:nth-child(3n+2) { animation-delay: -.22s; animation-duration: .34s; }
+  body.editing .grid > .slot.btn:nth-child(2n) { animation-direction: alternate-reverse; }
+  @keyframes wiggle { from { transform: translateY(-3px) scale(.9) rotate(-.9deg); } to { transform: translateY(-3px) scale(.9) rotate(.9deg); } }
+  .add { border: 2px dashed rgba(255,255,255,.22); color: rgba(255,255,255,.45); background: rgba(0,0,0,.25);
+    font: 300 44px system-ui; display: flex; align-items: center; justify-content: center; }
+  .del { position: absolute !important; top: -8px; left: -8px; width: 30px; height: 30px; border-radius: 50%; border: 0;
+    background: #d23545; color: #fff; font: 700 18px/1 system-ui; display: none; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,.5); }
+  body.editing .del { display: block; }
+  .dragging { opacity: .25; }
+  .drop-target { outline: 3px solid var(--accent) !important; }
+  #ghost { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 50; opacity: .92; will-change: transform;
+    transform: translate3d(-9999px, 0, 0); box-shadow: 0 18px 34px rgba(0,0,0,.7); }
+
+  /* ---------- Panels (button editor, menu) ---------- */
+  .scrim { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: none; z-index: 60; }
+  .scrim.open { display: flex; }
+  /* The button editor stays laid out while closed (just invisible) so its 60+ icons don't have to be
+     laid out and decoded again every time it opens — that was most of the lag on the Pad. */
+  #editor.scrim { display: flex; visibility: hidden; }
+  #editor.scrim.open { visibility: visible; }
+  .panel { margin: auto; background: #1a1b1e url(noise.png); border-radius: 18px; color: var(--text);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 20px 50px rgba(0,0,0,.7); font: 500 15px var(--font); }
+  .field { display: grid; gap: 6px; color: var(--muted); text-transform: uppercase; font: 600 12px var(--font); letter-spacing: .1em; }
+  .input, .field select { background: #0c0d0f; border: 0; border-radius: 9px; padding: 11px 12px; color: var(--text);
+    font: 500 17px var(--font); letter-spacing: .02em; text-transform: none; box-shadow: inset 0 2px 4px rgba(0,0,0,.7), 0 1px 0 rgba(255,255,255,.06); outline: none; }
+  .input:focus { box-shadow: inset 0 2px 4px rgba(0,0,0,.7), 0 0 0 2px var(--accent); }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .seg { display: inline-flex; padding: 3px; gap: 3px; background: #0c0d0f; border-radius: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,.7); }
+  .seg button { border: 0; background: transparent; border-radius: 8px; padding: 8px 14px; font: 600 14px var(--font); color: var(--muted); letter-spacing: .04em; }
+  .seg button.on { background: #2f3238; color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 2px 4px rgba(0,0,0,.5); }
+
+  #editor .panel { width: min(900px, 96vw); height: min(560px, 94vh); display: grid; grid-template-columns: 180px 1fr;
+    grid-template-rows: 1fr auto; gap: 16px; padding: 16px; }
+  #previewWrap { display: grid; align-content: start; padding-top: 6px; }
+  #preview { aspect-ratio: 1; pointer-events: none; border-radius: 16px; }
+  #fields { display: grid; gap: 14px; align-content: start; overflow: auto; min-height: 0; padding: 4px 6px 4px 2px; touch-action: pan-y; }
+  #fields [hidden] { display: none; }
+  .swatch { width: 36px; height: 36px; border-radius: 9px; border: 0; background-image: url(noise.png);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 3px 0 rgba(0,0,0,.5); }
+  .swatch.on { outline: 2px solid #fff; outline-offset: 2px; }
+  #colorCustom { width: 44px; height: 36px; border: 0; background: none; padding: 0; }
+  #icons { display: grid; grid-template-columns: repeat(auto-fill, minmax(52px, 1fr)); gap: 6px; touch-action: pan-y;
+    background: #0c0d0f; border-radius: 10px; padding: 6px; max-height: 170px; overflow: auto; box-shadow: inset 0 2px 4px rgba(0,0,0,.7); }
+  #icons button { aspect-ratio: 1; border: 2px solid transparent; border-radius: 8px; background: #26282d; padding: 6px; color: var(--muted); font: 600 12px var(--font); }
+  #icons button.on { border-color: var(--accent); }
+  #icons img { width: 100%; height: 100%; object-fit: contain; }
+  #editorActions { grid-column: 1 / -1; display: flex; gap: 12px; padding-top: 4px; }
+  #editorActions .barbtn { height: 42px; padding: 0 18px; }
+  .barbtn.danger { background-color: #6a1f27; color: #ffb3b9; box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 3px 0 #2e0c10, 0 4px 6px rgba(0,0,0,.4); }
+  #editorActions [hidden] { display: none; }
+  #uploadBtn { margin-right: auto; }
+
+  #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,.85); color: #fff;
+    padding: 11px 18px; border-radius: 10px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 90;
+    font: 600 15px var(--font); letter-spacing: .03em; }
+  #toast.show { opacity: 1; }
+
+  #volHud { position: fixed; top: 6px; left: 50%; z-index: 95; display: flex; align-items: center; gap: 16px; padding: 14px 22px;
+    border-radius: 16px; background: rgba(12,13,15,.92) url(noise.png); pointer-events: none;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 14px 34px rgba(0,0,0,.7);
+    opacity: 0; transform: translate(-50%, -12px); transition: opacity .18s, transform .18s; }
+  #volHud.show { opacity: 1; transform: translate(-50%, 0); }
+  #volHud b { font: 600 14px var(--font); letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  #volHud .segs { display: flex; gap: 5px; }
+  #volHud i { width: 22px; height: 26px; border-radius: 4px; background: #24262b; box-shadow: inset 0 2px 3px rgba(0,0,0,.7); }
+  #volHud i.on { background: var(--led-green); box-shadow: 0 0 8px rgba(77,255,134,.55), inset 0 1px 0 rgba(255,255,255,.4); }
+  #volHud span { min-width: 30px; text-align: right; font: 600 22px var(--font); color: #fff; }
+</style>
+<link rel="stylesheet" href="menu.css">
+<link rel="stylesheet" href="keyboard.css">
+</head>
+<body class="intro">
+<div id="bar">
+  <span id="conn" class="chip connecting"><span class="dot"></span><span id="connText">Connecting</span></span>
+  <span id="stream" class="chip live-only"><span class="dot"></span>Live</span>
+  <span id="rec" class="chip live-only"><span class="dot"></span>Rec</span>
+  <span style="flex:1"></span>
+  <span class="edit-only stepper">Cols <button class="barbtn" data-step="columns,-1">−</button><b id="cols"></b><button class="barbtn" data-step="columns,1">+</button></span>
+  <span class="edit-only stepper">Rows <button class="barbtn" data-step="rows,-1">−</button><b id="rows"></b><button class="barbtn" data-step="rows,1">+</button></span>
+  <button id="cancelEdit" class="barbtn big edit-only">Cancel</button>
+  <button id="doneEdit" class="barbtn big primary edit-only">Done</button>
+  <button id="editBtn" class="barbtn icon live-only" title="Edit layout">✎</button>
+  <button id="menuBtn" class="barbtn icon live-only" title="Menu">☰</button>
+</div>
+<div id="main">
+  <div id="stage"><div id="grid" class="grid"></div></div>
+  <!-- Page rail: ▲ / dots / ▼. Down from the last page opens a new blank page. -->
+  <div id="rail">
+    <button id="pgUp" class="btn pgbtn" data-dir="-1" aria-label="Previous page"><svg viewBox="0 0 24 24"><path d="M5 15l7-7 7 7"/></svg></button>
+    <div id="dots"></div>
+    <button id="pgDown" class="btn pgbtn" data-dir="1" aria-label="Next page"><svg viewBox="0 0 24 24"><path d="M5 9l7 7 7-7"/></svg></button>
+  </div>
+</div>
+<div id="badge" hidden>
+  <!-- Stick-on chrome car lettering: lit bevel (SVG lighting), shared reflection band, metal sides, cast shadow. -->
+  <svg viewBox="0 0 720 220" aria-label="Pad Deck">
+    <defs>
+      <text id="word" x="360" y="150" text-anchor="middle" font-family="Pad Script, cursive" font-size="168" letter-spacing="1">Pad Deck</text>
+      <clipPath id="wordClip"><use href="#word"/></clipPath>
+      <linearGradient id="reflect" gradientUnits="userSpaceOnUse" x1="0" y1="62" x2="0" y2="152">
+        <stop offset="0" stop-color="#ffffff"/><stop offset=".18" stop-color="#f1f4f7"/><stop offset=".40" stop-color="#b3bac3"/>
+        <stop offset=".47" stop-color="#5a6068"/><stop offset=".52" stop-color="#25282c"/><stop offset=".60" stop-color="#4b5056"/>
+        <stop offset=".74" stop-color="#bfc5cc"/><stop offset=".88" stop-color="#f7f9fb"/><stop offset="1" stop-color="#9ba1a8"/>
+      </linearGradient>
+      <linearGradient id="gleamFill" x1="0" x2="1">
+        <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".9"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+      </linearGradient>
+      <filter id="bevel" x="-5%" y="-20%" width="110%" height="140%">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="1.7" result="bump"/>
+        <feDiffuseLighting in="bump" surfaceScale="3" diffuseConstant="1.15" lighting-color="#fff" result="diffuse">
+          <feDistantLight azimuth="235" elevation="58"/>
+        </feDiffuseLighting>
+        <feSpecularLighting in="bump" surfaceScale="3.5" specularConstant="1.35" specularExponent="18" lighting-color="#fff" result="spec">
+          <feDistantLight azimuth="235" elevation="40"/>
+        </feSpecularLighting>
+        <feComposite in="spec" in2="SourceAlpha" operator="in" result="specIn"/>
+        <feBlend in="SourceGraphic" in2="diffuse" mode="multiply" result="shaded"/>
+        <feComposite in="shaded" in2="specIn" operator="arithmetic" k2="1" k3=".85"/>
+        <feComposite in2="SourceAlpha" operator="in"/>
+      </filter>
+      <filter id="cast" x="-10%" y="-30%" width="120%" height="170%">
+        <feGaussianBlur in="SourceAlpha" stdDeviation="9"/><feOffset dy="16" result="soft"/>
+        <feGaussianBlur in="SourceAlpha" stdDeviation="2"/><feOffset dy="12" result="contact"/>
+        <feFlood flood-color="#000" flood-opacity=".55"/><feComposite in2="soft" operator="in" result="softShadow"/>
+        <feFlood flood-color="#000" flood-opacity=".8"/><feComposite in2="contact" operator="in" result="contactShadow"/>
+        <feMerge><feMergeNode in="softShadow"/><feMergeNode in="contactShadow"/></feMerge>
+      </filter>
+    </defs>
+    <use href="#word" filter="url(#cast)"/>
+    <use href="#word" y="1" fill="#e6e9ec"/><use href="#word" y="2" fill="#c9ced3"/><use href="#word" y="3" fill="#b0b5bc"/><use href="#word" y="4" fill="#9aa0a7"/><use href="#word" y="5" fill="#878d94"/><use href="#word" y="6" fill="#767b82"/><use href="#word" y="7" fill="#666b71"/><use href="#word" y="8" fill="#575b61"/><use href="#word" y="9" fill="#4a4e53"/><use href="#word" y="10" fill="#3e4146"/><use href="#word" y="11" fill="#33363a"/>
+    <use href="#word" fill="url(#reflect)" filter="url(#bevel)"/>
+    <g clip-path="url(#wordClip)"><g transform="skewX(-20)"><rect class="gleam" x="0" y="20" width="110" height="180" fill="url(#gleamFill)"/></g></g>
+  </svg>
+</div>
+
+<div id="editor" class="scrim">
+  <div class="panel">
+    <div id="previewWrap"><div id="preview"></div></div>
+    <div id="fields">
+      <label class="field">Does
+        <div class="seg" id="kind">
+          <button data-kind="scene">Switch scene</button>
+          <button data-kind="mute">Toggle mute</button>
+        </div>
+      </label>
+      <label class="field" id="sceneField">Scene <select id="sceneSel"></select></label>
+      <label class="field" id="muteField">Audio input <select id="muteSel"></select></label>
+      <label class="field">Label <input id="labelIn" class="input" type="text" autocomplete="off" data-osk></label>
+      <label class="field">Colour <div class="row" id="swatches"></div></label>
+      <label class="field">Icon <div id="icons"></div></label>
+    </div>
+    <div id="editorActions">
+      <button id="delBtn" class="barbtn danger">Delete</button>
+      <button id="dupBtn" class="barbtn">Duplicate</button>
+      <button id="uploadBtn" class="barbtn">Upload icon…</button>
+      <input id="uploadIn" type="file" accept="image/*" hidden>
+      <button id="sheetCancel" class="barbtn">Cancel</button>
+      <button id="sheetSave" class="barbtn primary">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="menu" class="scrim"></div>
+<div id="toast"></div>
+
+<script src="config.js"></script>
+<script src="obs.js"></script>
+<script src="feedback.js"></script>
+<script src="app.js"></script>
+<script src="keyboard.js"></script>
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-fit.js"></script>
+<script src="menu.js"></script>
+</body>
+</html>

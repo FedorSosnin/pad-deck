@@ -1,0 +1,11 @@
+// Turns off the H616's built-in analog codec. Its driver locks the shared audio PLL at a 
+// rate that leaves HDMI audio (the screen's speaker) running ~25% slow, so sounds arrive late,
+// stacked or not at all. Nothing on the Pad 7 uses the analog output.
+/dts-v1/;
+/plugin/;
+/ {
+	fragment@0 {
+		target-path = "/soc/codec@5096000";
+		__overlay__ { status = "disabled"; };
+	};
+};

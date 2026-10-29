@@ -1,0 +1,18 @@
+/* On-screen keyboard (keyboard.js), styled as physical keys like the deck */
+#osk { position: fixed; left: 0; right: 0; bottom: 0; z-index: 80; display: none; flex-direction: column; gap: 6px;
+  padding: 8px 8px 10px; background: #0b0c0e url(noise.png); box-shadow: 0 -10px 30px rgba(0,0,0,.7); }
+body.osk-open #osk { display: flex; }
+body.osk-open #editor .panel { margin-top: 10px; height: calc(100vh - 292px); }
+.osk-row { display: flex; gap: 6px; }
+.osk-key { flex: 1; height: 46px; border: 0; border-radius: 8px; color: #eceef2; font: 500 20px var(--font, system-ui);
+  background: #2e3036 url(noise.png); touch-action: none;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 3px 0 #141518; transform: translateY(-1px); }
+.osk-key.down { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255,255,255,.1), 0 0 0 #141518; background-color: #44474f; }
+.osk-shift, .osk-back, .osk-sym, .osk-esc, .osk-tab, .osk-ctrl { flex: 1.35; background-color: #23252a; font-size: 16px; }
+.osk-left, .osk-up, .osk-down, .osk-right { background-color: #23252a; }
+.osk-key.on { background-color: #1f7a45; color: #fff; }
+.osk-space { flex: 5; font-size: 15px; color: #8a8f99; }
+.osk-enter { flex: 2; background-color: #1f7a45; color: #fff; font-weight: 600; font-size: 17px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 3px 0 #0e3b21; }
+/* Terminal mode adds a row: the keyboard is taller */
+body.osk-term .osk-key { height: 40px; }

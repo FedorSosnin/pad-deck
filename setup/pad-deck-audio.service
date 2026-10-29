@@ -1,0 +1,12 @@
+[Unit]
+Description=Pad Deck audio keepalive (silence on HDMI so the screen's speaker stays unmuted)
+After=sound.target
+
+[Service]
+User=deck
+ExecStart=/usr/bin/aplay -q -D default -t raw -f S16_LE -r 44100 -c 2 /dev/zero
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target

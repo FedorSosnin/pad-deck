@@ -1,0 +1,13 @@
+[Unit]
+Description=Pad Deck server (serves the deck and saves layout.json)
+After=network.target
+
+[Service]
+User=deck
+WorkingDirectory=/home/deck/pad-deck
+ExecStart=/usr/bin/python3 /home/deck/pad-deck/server.py 8099
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
