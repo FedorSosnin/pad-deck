@@ -7,11 +7,14 @@ Style: a 48-unit grid, bold round-capped white strokes,
 line-drawn throughout (screens are outlined displays with line content inside).
 """
 import os
+import re
 
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "icons")
-W = 3  # stroke width
+W = 2.6  # stroke width; per-shape stroke-widths below were drawn for 3 and are scaled to match
+THIN = W / 3
 
 def svg(body):
+    body = re.sub(r'stroke-width="([\d.]+)"', lambda m: f'stroke-width="{float(m.group(1)) * THIN:.2f}"', body)
     return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none" stroke="#fff" '
             f'stroke-width="{W}" stroke-linecap="round" stroke-linejoin="round">{body}</svg>\n')
 
