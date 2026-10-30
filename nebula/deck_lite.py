@@ -921,6 +921,8 @@ class Deck:
         self.render()
         start = None
         trail = []
+        last_up = (0, 0, 0)         # when and where the last touch ended (for bounce filtering)
+        menu_toggled = 0
         last_poll = 0
         while True:
             try:
@@ -959,6 +961,11 @@ class Deck:
                 trail.append(ev[1:])
             elif kind == "down":
                 _, x, y = ev
+                # Resistive panels bounce: a second "touch" a moment after the last one ended, in the same spot,
+                # is the same press. Ignore it (otherwise the ☰ button opens and closes in one tap).
+                if time.time() - last_up[0] < 0.25 and abs(x - last_up[1]) < 30 and abs(y - last_up[2]) < 30:
+                    start = None
+                    continue
                 start = (x, y, time.time())
                 trail = [(x, y)]
                 if y < BAR or self.info or self.in_menu_button(x, y):
@@ -978,12 +985,15 @@ class Deck:
                 # Resistive panels report junk positions as the finger lifts, so the release point is ignored.
                 sx, sy, _ = start
                 start = None
+                last_up = (time.time(), sx, sy)
                 x, y = trail[-3] if len(trail) > 3 else (sx, sy)
                 was, self.pressed = self.pressed, None
                 dy, dx = y - sy, x - sx
                 if self.in_menu_button(sx, sy) and abs(dx) < 40 and abs(dy) < 40:   # ☰ opens, ✕ closes
-                    self.info = not self.info
-                    self.render()
+                    if time.time() - menu_toggled > 0.4:
+                        menu_toggled = time.time()
+                        self.info = not self.info
+                        self.render()
                 elif self.info:                                  # a control on the menu card, or outside it
                     hit = next((a for x0, y0, x1, y1, a in self.menu_hits if x0 <= sx <= x1 and y0 <= sy <= y1), None)
                     if hit:
