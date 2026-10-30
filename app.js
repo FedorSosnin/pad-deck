@@ -1,10 +1,15 @@
 const params = new URLSearchParams(location.search);
 const [hostParam, portParam] = (params.get("obs") || "").split(":");
-const obs = new OBS({
-  host: hostParam || DECK.obs.host,
-  port: portParam || DECK.obs.port,
-  password: params.get("pw") ?? DECK.obs.password,
-});
+// Which OBS to talk to: ?obs=host:port in the URL, else Menu → OBS (settings.json), else config.js.
+function obsTarget() {
+  const s = Feedback.settings;
+  return {
+    host: hostParam || s.obsHost || DECK.obs.host,
+    port: portParam || (s.obsHost ? s.obsPort : DECK.obs.port),
+    password: params.get("pw") ?? (s.obsHost ? s.obsPassword : DECK.obs.password),
+  };
+}
+const obs = new OBS(obsTarget());
 
 const SWATCHES = ["#2b2d32", "#7a1430", "#1d5e36", "#23439e", "#56308f", "#9c4a16", "#0f6670", "#d8d9dc"];
 const $ = (id) => document.getElementById(id);
@@ -882,7 +887,7 @@ obs.onStatus = (s) => {
   state.conn = s;
   updateLeds();
   $("conn").className = `chip ${s}`;
-  $("connText").textContent = { online: "OBS", connecting: "Connecting", offline: "OBS offline" }[s];
+  $("connText").textContent = { online: "OBS", connecting: "Connecting", offline: "OBS offline", unset: "Set up OBS" }[s];
 };
 obs.onReady = () => { sync(); refreshLists(); }; // warm the editor's lists
 obs.onEvent = (type, d) => {
@@ -928,4 +933,10 @@ async function intro() {
 }
 
 loadLayout().then(() => { render(); sync(); }).catch(() => toast("Couldn't load layout")).finally(intro);
-obs.connect();
+// Connect once the settings (which may name the OBS computer) have loaded. A new Pad with no OBS chosen
+// yet opens Menu → OBS so it can be set up on the touchscreen.
+Feedback.ready.then(() => {
+  obs.configure(obsTarget());
+  if (!obs.host && params.has("kiosk")) setTimeout(() => Menu.open("obs"), 3500);
+});
+$("conn").onclick = () => Menu.open("obs");

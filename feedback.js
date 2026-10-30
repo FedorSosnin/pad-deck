@@ -5,7 +5,7 @@ const Feedback = (() => {
   let settings = { sound: true, vibrate: true, volume: 0.6, leds: true };
   let ctx = null;
 
-  fetch("api/settings").then((r) => r.json()).then((s) => { Object.assign(settings, s); updateLeds(); }).catch(() => {});
+  const ready = fetch("api/settings").then((r) => r.json()).then((s) => { Object.assign(settings, s); updateLeds(); }).catch(() => {});
 
   // A plastic key: a dry noise transient through two broad, quickly-damped body resonances, plus a
   // short low thump. No sustained pitch: a ringing tone is what makes a click sound like glass.
@@ -67,6 +67,7 @@ const Feedback = (() => {
   }
 
   return {
+    ready, // resolves once settings.json has loaded
     get settings() { return settings; },
     tap() {
       if (settings.sound) try { key(1, 1); } catch {}

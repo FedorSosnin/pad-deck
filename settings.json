@@ -2,5 +2,8 @@
   "sound": true,
   "vibrate": true,
   "volume": 0.4,
-  "leds": true
+  "leds": true,
+  "obsHost": "Fedors-MBP.local",
+  "obsPort": 4455,
+  "obsPassword": ""
 }

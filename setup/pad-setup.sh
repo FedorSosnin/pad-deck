@@ -1,7 +1,9 @@
 #!/bin/bash
-# One-time (re-runnable) Pad configuration. Run on the Pad as deck:  bash pad-setup.sh
-# Expects the packages from the first install: cage chromium fonts-roboto-slab libnss-mdns avahi-daemon.
+# Pad configuration (re-runnable): kiosk, cursor, speaker, vibration, LEDs, services.
+# Run on the Pad from this folder's copy:  bash pad-setup.sh   (the first-start installer does this for you)
+# Expects the packages: cage chromium libnss-mdns avahi-daemon sox libsox-fmt-mp3 device-tree-compiler.
 set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd)"   # the service files and overlay sit next to this script
 
 # --- Invisible mouse cursor: the touchscreen never moves a pointer, so hide it at the compositor level.
 THEME=/usr/share/icons/pad-invisible
@@ -39,7 +41,7 @@ echo 'KERNEL=="ws2812-led", MODE="0666"' | sudo tee /etc/udev/rules.d/90-pad-dec
 
 # --- Audio: turn off the analog codec, which would otherwise set the shared audio clock wrong for HDMI.
 sudo mkdir -p /boot/overlay-user
-sudo dtc -q -@ -I dts -O dtb -o /boot/overlay-user/pad-deck-no-analog.dtbo /tmp/pad-deck-no-analog.dts
+sudo dtc -q -@ -I dts -O dtb -o /boot/overlay-user/pad-deck-no-analog.dtbo "$HERE/pad-deck-no-analog.dts"
 if ! grep -q "^user_overlays=.*pad-deck-no-analog" /boot/armbianEnv.txt; then
   if grep -q "^user_overlays=" /boot/armbianEnv.txt; then
     sudo sed -i -E 's/^user_overlays=(.*)$/user_overlays=\1 pad-deck-no-analog/' /boot/armbianEnv.txt
@@ -66,10 +68,10 @@ pcm.hdmimix {
 pcm.!default { type plug slave.pcm "hdmimix" }
 ctl.!default { type hw card HDMI }
 EOF
-sudo install -m 644 /tmp/pad-deck-audio.service /etc/systemd/system/
+sudo install -m 644 "$HERE/pad-deck-audio.service" /etc/systemd/system/
 
 # --- Services
-sudo install -m 644 /tmp/pad-deck-server.service /tmp/pad-deck-kiosk.service /etc/systemd/system/
+sudo install -m 644 "$HERE/pad-deck-server.service" "$HERE/pad-deck-kiosk.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable pad-deck-server pad-deck-kiosk pad-deck-audio >/dev/null 2>&1
 sudo systemctl restart pad-deck-audio

@@ -72,3 +72,7 @@ body.osk-open.osk-hidden .menu-panel { height: 100vh; }
 .layout-row { display: flex; align-items: center; gap: 10px; padding: 12px 14px 12px 16px; }
 .layout-info { flex: 1; min-width: 0; display: grid; gap: 3px; font: 600 18px var(--font); }
 .layout-row .barbtn { height: 42px; }
+
+.obs-form { display: grid; gap: 14px; }
+.obs-row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; }
+.obs-form .row .hint { flex: 1; }

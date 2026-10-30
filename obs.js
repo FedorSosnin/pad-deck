@@ -1,9 +1,8 @@
 // Minimal obs-websocket v5 client: connect, auto-reconnect, requests, events.
 
 class OBS {
-  constructor({ host, port, password }) {
-    this.url = `ws://${host}:${port}`;
-    this.password = password || "";
+  constructor(target) {
+    this.configure(target, false);
     this.pending = new Map();
     this.nextId = 1;
     this.retry = 500;
@@ -12,7 +11,20 @@ class OBS {
     this.onReady = () => {};
   }
 
+  // Point at another OBS (from the Pad's settings); reconnects straight away if `reconnect`.
+  configure({ host, port, password }, reconnect = true) {
+    this.host = host || "";
+    this.url = `ws://${this.host}:${port || 4455}`;
+    this.password = password || "";
+    if (!reconnect) return;
+    this.retry = 500;
+    clearTimeout(this.timer);
+    if (this.ws) { this.ws.onclose = null; this.ws.close(); this.ws = null; }
+    this.connect();
+  }
+
   connect() {
+    if (!this.host) return this.onStatus("unset"); // no OBS computer chosen yet
     this.onStatus("connecting");
     const ws = (this.ws = new WebSocket(this.url));
     ws.onmessage = (m) => this.#handle(JSON.parse(m.data));
@@ -20,7 +32,7 @@ class OBS {
       for (const { reject } of this.pending.values()) reject(new Error("disconnected"));
       this.pending.clear();
       this.onStatus("offline");
-      setTimeout(() => this.connect(), this.retry);
+      this.timer = setTimeout(() => this.connect(), this.retry);
       this.retry = Math.min(this.retry * 2, 5000);
     };
   }

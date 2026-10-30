@@ -40,19 +40,37 @@ editable right on the screen. No phone, no extra app, no subscription. The Pad t
 
 ## Setup
 
-1. **Image:** download BTT's CB1 Debian image, then run `bash setup/make-pad-image.sh <image.img.xz>`.
-   It adds your Wi-Fi, the Pad 7 screen settings and the hostname `pad-deck`. Flash the result to an SD card.
-2. **First boot:** create a `deck` user with sudo and your SSH key, and install
-   `cage chromium libnss-mdns avahi-daemon sox libsox-fmt-mp3`.
-3. **Point it at OBS:** set your computer's name or IP (and password, if any) in `config.js`.
-4. **Install:** `bash setup/deploy.sh` copies the app over. Then run `setup/pad-setup.sh` on the Pad once and
-   reboot. It sets up the kiosk, the invisible cursor, the speaker, the vibration motor and the LEDs.
+You need a Mac, Windows or Linux computer with [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+running, and a microSD card.
 
-`setup/pull-from-pad.sh` copies the Pad's layouts and settings back for safekeeping, and
-`setup/make-icons.py` regenerates the icon library.
+**1. Build the SD card image.** One line: put your Wi-Fi name and password in the quotes.
 
-Run it locally with `python3 server.py` and open <http://localhost:8099>.
+```bash
+curl -fsSL https://raw.githubusercontent.com/FedorSosnin/pad-deck/main/build-image.sh | bash -s -- "WiFi name" "WiFi password"
+```
+
+This downloads BigTreeTech's official CB1 image, adds your Wi-Fi and Pad Deck, and saves `pad-deck.img`.
+
+**2. Flash it** to the microSD card with [Raspberry Pi Imager](https://www.raspberrypi.com/software/)
+(Choose OS → Use custom) or [balenaEtcher](https://etcher.balena.io/), and put the card in the Pad 7's CB1.
+
+**3. Power on.** The first start sets everything up by itself (about 10 minutes, with progress on screen)
+and restarts into Pad Deck.
+
+**4. Connect OBS.** In OBS, turn on Tools → WebSocket Server Settings → Enable WebSocket server. On the Pad,
+the OBS screen opens on its own: type your computer's name or IP and tap **Save & connect**.
+
+<details>
+<summary>For tinkerers</summary>
+
+- `PAD_DECK_SSH_KEY="ssh-ed25519 AAAA…"` before the command lets you SSH in as `deck`.
+- Run it locally with `python3 server.py` and open <http://localhost:8099>.
+- `setup/deploy.sh` pushes changes to a Pad, `setup/pull-from-pad.sh` backs its layouts up, and
+  `setup/make-icons.py` regenerates the icon library.
+</details>
 
 ## Credits
+
+Made by **Fedor / 3DPrintSOS**: [youtube.com/@3DPrintSOS](https://www.youtube.com/@3DPrintSOS).
 
 Fonts: Barlow Semi Condensed and Yellowtail (SIL Open Font License). Terminal: xterm.js (MIT).

@@ -1,6 +1,5 @@
-// OBS WebSocket connection (OBS → Tools → WebSocket Server Settings).
-// `?obs=host:port` in the URL overrides this; on the Pad use the Mac's name or IP.
-// Buttons live in layout.json and are edited from the deck itself (pencil icon).
+// Fallback OBS WebSocket connection. Normally set on the Pad itself: Menu → OBS (saved in settings.json).
+// `?obs=host:port` in the URL overrides both.
 window.DECK = {
-  obs: { host: "Fedors-MBP.local", port: 4455, password: "" },
+  obs: { host: "", port: 4455, password: "" },
 };
