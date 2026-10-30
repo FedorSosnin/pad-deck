@@ -29,17 +29,17 @@
           "label": "Main Cam",
           "icon": "deck-screen-person.svg",
           "scene": "Main Cam",
-          "bg": "#a0a0a0"
+          "bg": "#1c1c1c"
         },
         {
           "label": "Main PIP",
           "icon": "deck-screen-pip.svg",
           "scene": "Main - Close",
-          "bg": "#a0a0a0"
+          "bg": "#1c1c1c"
         },
         {
           "label": "Close - Main",
-          "bg": "#a0a0a0",
+          "bg": "#1c1c1c",
           "scene": "Close - Main",
           "icon": "deck-screen-pip-person.svg"
         },
@@ -47,11 +47,11 @@
           "label": "Browser View",
           "icon": "deck-screen-website.svg",
           "scene": "Browser View",
-          "bg": "#a0a0a0"
+          "bg": "#1c1c1c"
         },
         {
           "label": "Remote Cam",
-          "bg": "#a0a0a0",
+          "bg": "#1c1c1c",
           "scene": "Remote Cam",
           "icon": "deck-phone-camera.svg"
         },
