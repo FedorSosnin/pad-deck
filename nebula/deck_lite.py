@@ -399,8 +399,10 @@ class Painter:
         self.icons = {}
         try:                                                     # the Pad 7 keys' grain, tiled
             tile = Image.open(os.path.join(APP, "noise.png")).convert("RGBA")
-            # The Pad 7's grain is ~5% opaque, which vanishes on this small panel: make it 3× stronger.
-            tile.putalpha(tile.getchannel("A").point(lambda v: min(255, v * 3)))
+            # At this resolution the Pad 7's grain lands one speck per pixel and reads as TV static, so soften it
+            # into a fine matte texture: blur it a touch and keep it faint.
+            tile = tile.filter(ImageFilter.GaussianBlur(0.6))
+            tile.putalpha(tile.getchannel("A").point(lambda v: min(255, int(v * 1.6))))
             self.grain = Image.new("RGBA", (W, H))
             for gx in range(0, W, tile.width):
                 for gy in range(0, H, tile.height):
@@ -451,6 +453,13 @@ class Painter:
         # edge, face (with the same grain as the Pad 7 keys), dished plate, top light
         out.alpha_composite(rounded((w, h), r, mix(col, (0, 0, 0), .55) + (255,)), (M, top + edge))
         face = rounded((w, h), r, col + (255,))
+        # gentle top-to-bottom shading: light catches the top of the cap, the bottom falls into shadow
+        shade = Image.new("RGBA", (w, h))
+        sd = ImageDraw.Draw(shade)
+        for yy in range(h):
+            t = yy / max(1, h - 1)
+            sd.line([(0, yy), (w, yy)], fill=(255, 255, 255, int(22 * (1 - t) ** 2)) if t < .5 else (0, 0, 0, int(40 * ((t - .5) * 2) ** 1.5)))
+        face.alpha_composite(Image.composite(shade, Image.new("RGBA", (w, h), (0, 0, 0, 0)), face.getchannel("A")))
         if self.grain:
             g = self.grain.crop((0, 0, w, h))
             face.alpha_composite(Image.composite(g, Image.new("RGBA", (w, h), (0, 0, 0, 0)), face.getchannel("A")))
