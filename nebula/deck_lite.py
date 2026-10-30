@@ -369,7 +369,10 @@ def rounded(size, r, fill, scale=3):
     for x, y in [(0, 0), (w * scale - 2 * R, 0), (0, h * scale - 2 * R), (w * scale - 2 * R, h * scale - 2 * R)]:
         d.ellipse([x, y, x + 2 * R, y + 2 * R], fill=255)
     out = Image.new("RGBA", (w, h), fill)
-    out.putalpha(m.resize((w, h), Image.LANCZOS))
+    alpha = m.resize((w, h), Image.LANCZOS)
+    if len(fill) == 4 and fill[3] < 255:                        # keep the fill's own transparency
+        alpha = alpha.point(lambda v: v * fill[3] // 255)
+    out.putalpha(alpha)
     return out
 
 
