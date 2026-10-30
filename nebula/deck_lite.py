@@ -12,6 +12,7 @@ ASSETS/icons for the library, or the uploaded file itself).
 """
 import base64
 import fcntl
+import glob
 import hashlib
 import json
 import mmap
@@ -63,6 +64,36 @@ def text_top(f, text, middle):
 
 def font(weight, size):
     return ImageFont.truetype(os.path.join(ASSETS, "fonts", "BarlowSemiCondensed-%s.ttf" % weight), size)
+
+
+# ---------- Wi-Fi from a USB stick (there's no keyboard on this screen) ----------
+
+USB_WIFI = "/tmp/udisk/*/pad-deck-wifi.txt"   # line 1: network name, line 2: password
+def add_wifi(ssid, password, connect=False):
+    """Save a Wi-Fi network in wpa_supplicant (kept across restarts). Joins it now only if `connect`."""
+    def wpa(*args):
+        return subprocess.run(["wpa_cli", "-i", "wlan0", *args], capture_output=True, text=True, timeout=15).stdout
+    ids = {l.split("\t")[1]: l.split("\t")[0] for l in wpa("list_networks").splitlines()[1:] if "\t" in l}
+    nid = ids.get(ssid) or wpa("add_network").strip().splitlines()[-1]
+    wpa("set_network", nid, "ssid", ssid.encode().hex())        # hex: any characters are safe
+    if password:
+        psk = hashlib.pbkdf2_hmac("sha1", password.encode(), ssid.encode(), 4096, 32).hex()
+        wpa("set_network", nid, "psk", psk)
+        wpa("set_network", nid, "key_mgmt", "WPA-PSK")
+    else:
+        wpa("set_network", nid, "key_mgmt", "NONE")
+    wpa("set_network", nid, "scan_ssid", "1")
+    wpa("enable_network", nid)
+    wpa("save_config")
+    if connect:
+        wpa("select_network", nid)
+        wpa("enable_network", "all")
+        wpa("save_config")
+
+
+def wifi_connected():
+    out = subprocess.run(["wpa_cli", "-i", "wlan0", "status"], capture_output=True, text=True, timeout=5).stdout
+    return "wpa_state=COMPLETED" in out
 
 
 # ---------- Framebuffer ----------
@@ -806,6 +837,20 @@ class Deck:
         self.frame.paste(patch, box[:2])
         self.screen.show(self.frame, box)
 
+    def check_usb_wifi(self):
+        """A pad-deck-wifi.txt on a plugged-in USB stick adds that network (then the file is deleted)."""
+        for path in glob.glob(USB_WIFI):
+            try:
+                lines = [l.strip("\r\n") for l in open(path, encoding="utf-8-sig").read().splitlines()]
+                os.remove(path)                                  # don't leave the password on the stick
+                if not lines or not lines[0]:
+                    continue
+                add_wifi(lines[0], lines[1] if len(lines) > 1 else "", connect=not wifi_connected())
+                print("USB: added Wi-Fi %s" % lines[0], flush=True)
+                self.toast("Wi-Fi added: %s" % lines[0], 4)
+            except (OSError, subprocess.SubprocessError) as e:
+                print("USB Wi-Fi failed:", e, flush=True)
+
     def in_menu_button(self, x, y):
         x0, y0, x1, y1 = MENU_HIT
         return x0 <= x <= x1 and y0 <= y <= y1
@@ -930,6 +975,7 @@ class Deck:
                 self.refresh()
             if time.time() - last_poll > 1:
                 last_poll = time.time()
+                self.check_usb_wifi()
                 if self.load():
                     self.render()
             if not ev:
