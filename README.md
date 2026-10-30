@@ -3,6 +3,7 @@
 **A tactile, touch-first stream deck for OBS, built for the BigTreeTech Pad 7.**
 Big chrome-and-carbon keycaps that switch scenes and mute your mic, live status lights, and everything
 editable right on the screen. No phone, no extra app, no subscription. The Pad talks to OBS over your network.
+It also runs on the smaller **Creality Nebula Pad**: see [Pad Deck Lite](#creality-nebula-pad-pad-deck-lite).
 
 ![Pad Deck](docs/screenshots/deck.png)
 
@@ -35,7 +36,8 @@ editable right on the screen. No phone, no extra app, no subscription. The Pad t
 
 ## Hardware
 
-- BigTreeTech **Pad 7** with a **CB1** compute module (1024×600 touch screen, speaker, vibration motor, RGB LEDs)
+- BigTreeTech **Pad 7** with a **CB1** compute module (1024×600 touch screen, speaker, vibration motor, RGB LEDs),
+  or a **Creality Nebula Pad** ([Pad Deck Lite](#creality-nebula-pad-pad-deck-lite))
 - OBS 28+ with the WebSocket server on (Tools → WebSocket Server Settings), on the same network
 
 ## Setup
@@ -68,6 +70,33 @@ the OBS screen opens on its own: type your computer's name or IP and tap **Save 
 - `setup/deploy.sh` pushes changes to a Pad, `setup/pull-from-pad.sh` backs its layouts up, and
   `setup/make-icons.py` regenerates the icon library.
 </details>
+
+## Creality Nebula Pad (Pad Deck Lite)
+
+The same deck on Creality's 4.3" Nebula Pad: the same keycaps, icons, pages and OBS control, built for its
+smaller screen. You arrange the keys and set up OBS and Wi-Fi from any browser, and pages change with the ▲/▼ keys.
+
+| | |
+|---|---|
+| ![Pad Deck Lite](docs/screenshots/nebula-deck.png) | ![Pad Deck Lite menu](docs/screenshots/nebula-menu.png) |
+
+**1. Root it.** Download [`NEBULA_ota_img_V6.1.0.29.img`](https://github.com/srvrguy/Creality-Nebula-Pad-Files/releases/tag/RootedFirmware),
+copy it onto the USB stick that came with the Nebula, plug the stick in and tap **Upgrade**.
+
+**2. Connect it to Wi-Fi** on its own screen, and note its IP address under Settings → Network.
+
+**3. Install.** One line from your computer: put the Nebula's IP in, and type `creality` when asked for a password.
+
+```bash
+ssh root@NEBULA-IP 'python3 -c "import urllib.request as u; exec(u.urlopen(\"https://raw.githubusercontent.com/FedorSosnin/pad-deck/main/nebula/get.py\").read())"'
+```
+
+**4. Connect OBS.** Open `http://NEBULA-IP:8099` in a browser, choose ☰ → OBS and enter your computer's name or
+IP. Tap ✎ there to add your keys.
+
+Run the same line again to update. To put Creality's screen back:
+`ssh root@NEBULA-IP sh /usr/data/pad-deck/uninstall.sh`. The Nebula runs on 5 V, so without a printer power
+it from its own 5 V connector.
 
 ## Credits
 
