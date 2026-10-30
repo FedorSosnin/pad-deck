@@ -1,0 +1,116 @@
+{
+  "name": "Before last load",
+  "saved": "2026-10-30T03:09:19",
+  "layout": {
+    "columns": 4,
+    "rows": 4,
+    "bg": "#3a3a3a",
+    "pages": [
+      {
+        "buttons": [
+          {
+            "label": "Stream Intro",
+            "icon": "deck-clapperboard.svg",
+            "scene": "Starting Soon",
+            "bg": "#1a5c1a"
+          },
+          {
+            "label": "Stream Outro",
+            "icon": "deck-clapperboard.svg",
+            "scene": "Thanks for watching!",
+            "bg": "#23439e"
+          },
+          null,
+          {
+            "label": "Mic",
+            "icon": "deck-mic.svg",
+            "mute": "Mic/Aux",
+            "bg": "#8a0030"
+          },
+          {
+            "label": "Main Cam",
+            "icon": "deck-screen-person.svg",
+            "scene": "Main Cam",
+            "bg": "#56308f"
+          },
+          {
+            "label": "Main PIP",
+            "icon": "deck-screen-pip.svg",
+            "scene": "Main - Close",
+            "bg": "#56308f"
+          },
+          {
+            "label": "Close PIP",
+            "icon": "deck-screen-pip-person.svg",
+            "scene": "Close - Main",
+            "bg": "#56308f"
+          },
+          {
+            "label": "Browser View",
+            "icon": "deck-screen-website.svg",
+            "scene": "Browser View",
+            "bg": "#56308f"
+          },
+          {
+            "label": "Close up",
+            "icon": "deck-camera-closeup.svg",
+            "scene": "Closeup Cam"
+          },
+          {
+            "label": "Browser + Cams",
+            "icon": "deck-screen-website-cams.svg",
+            "scene": "Browser + Cams"
+          },
+          {
+            "label": "ONLY Main",
+            "icon": "deck-camera.svg",
+            "scene": "ONLY Main"
+          },
+          {
+            "label": "ONLY Close + Main",
+            "icon": "deck-screen-two-people.svg",
+            "scene": "ONLY Close + Main"
+          },
+          null,
+          {
+            "label": "GamePlay",
+            "icon": "deck-screen-game.svg",
+            "scene": "GamePlay"
+          },
+          {
+            "label": "Remote Cam",
+            "bg": "#2b2d32",
+            "scene": "Remote Cam",
+            "icon": "deck-phone-camera.svg"
+          },
+          null
+        ]
+      },
+      {
+        "buttons": [
+          {
+            "label": "Mic",
+            "icon": "deck-mic.svg",
+            "mute": "Mic/Aux",
+            "bg": "#8a0030"
+          },
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          null
+        ]
+      }
+    ]
+  }
+}

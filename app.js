@@ -371,6 +371,7 @@ function openEditor(i) {
     draft.scene = lists.scenes[0] || "";
     draft.label = draft.scene;
   }
+  $("colorPop").hidden = true;
   fillEditor();
   // The tap that opened the editor still has a click to come, which would land on whatever is now under
   // the finger (often the scene dropdown, which then pops open). Ignore touches for a moment.
@@ -410,10 +411,7 @@ function buildPickers() {
       s.style.backgroundColor = c;
       s.onclick = () => { draft.bg = c; markPickers(); updatePreview(); };
       return s;
-    }), Object.assign(document.createElement("input"), {
-      type: "color", id: "colorCustom",
-      oninput: (e) => { draft.bg = e.target.value; markPickers(); updatePreview(); },
-    }));
+    }), Object.assign(document.createElement("button"), { id: "colorCustom", title: "Custom colour", onclick: openColorPicker }));
   }
   const key = lists.icons.join("\n");
   if (key === builtIcons) return;
@@ -430,10 +428,63 @@ function buildPickers() {
 
 function markPickers() {
   for (const s of $("swatches").querySelectorAll(".swatch")) s.classList.toggle("on", s.dataset.color === (draft.bg || SWATCHES[0]));
-  $("colorCustom").value = draft.bg || SWATCHES[0];
   $("colorCustom").classList.toggle("on", !SWATCHES.includes(draft.bg || SWATCHES[0])); // a custom colour is chosen
   for (const b of $("icons").children) b.classList.toggle("on", b.dataset.icon === (draft.icon || ""));
 }
+
+// ---------- Custom colour picker ----------
+// Built into the page (Chromium's own picker is a separate popup the on-screen keyboard can't reach):
+// drag the square for saturation/brightness, the strip for hue, or type a hex code.
+
+let cp = { h: 0, s: 0, v: 0 };
+
+function hexToHsv(hex) {
+  const n = parseInt(hex.slice(1), 16), r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+  const h = !d ? 0 : max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return { h: (h * 60 + 360) % 360, s: max ? d / max : 0, v: max };
+}
+
+function hsvToHex({ h, s, v }) {
+  const f = (k) => { const x = (k + h / 60) % 6; return v - v * s * Math.max(0, Math.min(x, 4 - x, 1)); };
+  return "#" + [f(5), f(3), f(1)].map((c) => Math.round(c * 255).toString(16).padStart(2, "0")).join("");
+}
+
+function openColorPicker() {
+  cp = hexToHsv(draft.bg || SWATCHES[0]);
+  $("colorPop").hidden = false;
+  paintColor(true);
+}
+
+function paintColor(fromDrag) {
+  const hex = hsvToHex(cp);
+  $("cpSV").style.setProperty("--hue", `hsl(${cp.h} 100% 50%)`);
+  $("cpSV").firstElementChild.style.cssText = `left:${cp.s * 100}%;top:${(1 - cp.v) * 100}%;background:${hex}`;
+  $("cpHue").firstElementChild.style.left = `${cp.h / 3.6}%`;
+  if (fromDrag) $("cpHex").value = hex.toUpperCase();
+  $("cpSwatch").style.background = hex;
+  draft.bg = hex;
+  markPickers();
+  updatePreview();
+}
+
+// Drag on an element with pointer capture; `set(fx, fy)` gets the position as 0–1 fractions.
+function dragArea(el, set) {
+  const at = (e) => {
+    const r = el.getBoundingClientRect();
+    set(Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), Math.min(1, Math.max(0, (e.clientY - r.top) / r.height)));
+    paintColor(true);
+  };
+  el.onpointerdown = (e) => { el.setPointerCapture(e.pointerId); at(e); el.onpointermove = at; };
+  el.onpointerup = el.onpointercancel = () => { el.onpointermove = null; };
+}
+dragArea($("cpSV"), (fx, fy) => { cp.s = fx; cp.v = 1 - fy; });
+dragArea($("cpHue"), (fx) => { cp.h = Math.min(359.9, fx * 360); });
+$("cpHex").oninput = (e) => {
+  const m = e.target.value.trim().match(/^#?([0-9a-f]{6})$/i);
+  if (m) { cp = hexToHsv("#" + m[1].toLowerCase()); paintColor(false); }
+};
+$("cpDone").onclick = () => { $("colorPop").hidden = true; $("cpHex").blur(); };
 
 function fillEditor() {
   const kind = draft.mute !== undefined ? "mute" : "scene";
