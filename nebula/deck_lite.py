@@ -34,7 +34,7 @@ BAR = 34                      # status bar height
 RAIL_W = 38                   # ▲/▼ page buttons down the right edge
 # The Nebula's bezel covers the outer few pixels of the panel: keep keys, rail and menu inside this.
 SAFE_L, SAFE_R, SAFE_B = 14, 12, 14
-M = 4                         # room around each keycap for its glow
+M = 8                         # room around each keycap for its glow (neighbours' margins overlap)
 MENU_HIT = (W - 84, 0, W, BAR + 14)   # generous touch area for the ☰ button (resistive panels aren't precise)
 BACKLIGHT = "/sys/class/backlight/backlight_pwm0/brightness"   # 0–300
 FB = "/dev/fb0"
@@ -529,7 +529,13 @@ class Painter:
         return ring
 
     def chevron(self, w, h, up):
-        """A ▲/▼ rail keycap."""
+        """A ▲/▼ rail keycap (cached)."""
+        ck = ("chevron", w, h, up)
+        if ck not in self.cache:
+            self.cache[ck] = self.draw_chevron(w, h, up)
+        return self.cache[ck]
+
+    def draw_chevron(self, w, h, up):
         out = Image.new("RGBA", (w + 2 * M, h + 8 + 2 * M), (0, 0, 0, 0))
         sh = Image.new("L", out.size, 0)
         ImageDraw.Draw(sh).rectangle([M + 3, M + 6, M + w - 3, M + h + 5], fill=170)
@@ -788,12 +794,20 @@ class Deck:
             return
         self.drawn[i] = self.sig(i)
         x, y, kw, kh = self.slot_box(i)
-        box = (max(0, x - M), y - M, min(W, x + kw + M), min(H, y + kh + 8 + M))
+        box = (max(0, x - M), max(BAR, y - M), min(W, x + kw + M), min(H, y + kh + 8 + M))
         patch = self.paint.bg.crop(box)
-        b = self.buttons()[i]
-        if b:
-            k = self.paint.key(b, kw, kh, self.key_state(b, i))
-            patch.paste(k, (x - M - box[0], y - M - box[1]), k)
+        # Glow margins overlap, so repaint everything that reaches into this patch, in the same order as render().
+        for j, b in enumerate(self.buttons()):
+            if not b:
+                continue
+            jx, jy, jw, jh = self.slot_box(j)
+            if jx - M < box[2] and jx + jw + M > box[0] and jy - M < box[3] and jy + jh + 8 + M > box[1]:
+                k = self.paint.key(b, jw, jh, self.key_state(b, j))
+                patch.paste(k, (jx - M - box[0], jy - M - box[1]), k)
+        for direction, (rx, ry, rw, rh) in self.rail_boxes().items():
+            if rx - M < box[2] and ry - M < box[3] and ry + rh + 8 + M > box[1]:
+                cap = self.paint.chevron(rw, rh, direction < 0)
+                patch.paste(cap, (rx - M - box[0], ry - M - box[1]), cap)
         self.frame.paste(patch, box[:2])
         self.screen.show(self.frame, box)
 
