@@ -31,7 +31,9 @@ APP = os.path.join(ROOT, "..", "app")
 ASSETS = os.path.join(ROOT, "assets")
 W, H = 480, 272
 BAR = 34                      # status bar height
-RAIL = 50                     # ▲/▼ page buttons down the right edge
+RAIL_W = 38                   # ▲/▼ page buttons down the right edge
+# The Nebula's bezel covers the outer few pixels of the panel: keep keys, rail and menu inside this.
+SAFE_L, SAFE_R, SAFE_B = 14, 12, 14
 M = 4                         # room around each keycap for its glow
 MENU_HIT = (W - 84, 0, W, BAR + 14)   # generous touch area for the ☰ button (resistive panels aren't precise)
 BACKLIGHT = "/sys/class/backlight/backlight_pwm0/brightness"   # 0–300
@@ -626,13 +628,13 @@ class Deck:
     def grid(self):
         cols, rows = int(self.layout.get("columns", 4)), int(self.layout.get("rows", 2))
         pad, gap = 8, 8
-        kw = (W - RAIL - pad - 2 - (cols - 1) * gap) // cols
-        kh = (H - BAR - 2 * pad - 6 - (rows - 1) * gap) // rows
+        kw = (W - SAFE_L - SAFE_R - RAIL_W - gap - (cols - 1) * gap) // cols
+        kh = (H - BAR - pad - SAFE_B - 6 - (rows - 1) * gap) // rows
         return cols, rows, pad, gap, kw, kh
 
     def slot_box(self, i):
         cols, rows, pad, gap, kw, kh = self.grid()
-        x = pad + (i % cols) * (kw + gap)
+        x = SAFE_L + (i % cols) * (kw + gap)
         y = BAR + pad + (i // cols) * (kh + gap)
         return x, y, kw, kh
 
@@ -689,15 +691,15 @@ class Deck:
     # ▲/▼ page buttons, the height of the first and last rows (hidden when there's no page that way)
     def rail_boxes(self):
         cols, rows, pad, gap, kw, kh = self.grid()
-        x0 = W - RAIL + 4
+        x0 = W - SAFE_R - RAIL_W
         first = BAR + pad
         last = BAR + pad + (rows - 1) * (kh + gap)
         n = len(self.layout.get("pages", [])) or 1
         boxes = {}
         if self.page > 0:
-            boxes[-1] = (x0, first, W - 8 - x0, kh)
+            boxes[-1] = (x0, first, RAIL_W, kh)
         if self.page < n - 1:
-            boxes[1] = (x0, last, W - 8 - x0, kh)
+            boxes[1] = (x0, last, RAIL_W, kh)
         return boxes
 
     def draw_rail(self, img):
@@ -805,7 +807,7 @@ class Deck:
     def draw_info(self, img):
         """The ☰ menu: where to edit, then rows with an icon on the left and controls on the right."""
         d = ImageDraw.Draw(img)
-        cx0, cy0, cx1, cy1 = 12, BAR + 6, W - 12, H - 8
+        cx0, cy0, cx1, cy1 = SAFE_L, BAR + 6, W - SAFE_R, H - SAFE_B
         card = rounded((cx1 - cx0, cy1 - cy0), 14, (20, 21, 24, 245))
         img.paste(card, (cx0, cy0), card)
         f, big = self.paint.label, self.paint.big
@@ -972,7 +974,7 @@ class Deck:
                     hit = next((a for x0, y0, x1, y1, a in self.menu_hits if x0 <= sx <= x1 and y0 <= sy <= y1), None)
                     if hit:
                         self.menu_action(hit)
-                    elif not (12 <= sx <= W - 12 and BAR + 6 <= sy <= H - 8):
+                    elif not (SAFE_L <= sx <= W - SAFE_R and BAR + 6 <= sy <= H - SAFE_B):
                         self.info = False
                         self.render()
                 elif self.rail_at(sx, sy):                       # ▲/▼ page buttons
