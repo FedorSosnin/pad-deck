@@ -298,6 +298,17 @@ function enterEdit() {
   render();
 }
 $("editBtn").onclick = enterEdit;
+
+// Every other on-screen button (bar, menu, close ✕, editor, dialogs) clicks and buzzes like the keys do.
+// Keys and the ▲/▼ rail have their own handling; the on-screen keyboard stays quiet.
+document.addEventListener("pointerdown", (e) => {
+  const b = e.target.closest("button");
+  if (b && !b.disabled && !b.closest("#grid, #rail, #osk")) { b.dataset.fb = "1"; Feedback.tap(); }
+});
+document.addEventListener("pointerup", (e) => {
+  const b = e.target.closest("button[data-fb]");
+  if (b) { delete b.dataset.fb; Feedback.release(); }
+});
 $("menuBtn").onclick = () => Menu.open();
 
 $("cancelEdit").onclick = () => {
@@ -411,7 +422,7 @@ function buildPickers() {
       s.style.backgroundColor = c;
       s.onclick = () => { draft.bg = c; markPickers(); updatePreview(); };
       return s;
-    }), Object.assign(document.createElement("button"), { id: "colorCustom", title: "Custom colour", onclick: openColorPicker }));
+    }), Object.assign(document.createElement("button"), { id: "colorCustom", title: "Custom color", onclick: openColorPicker }));
   }
   const key = lists.icons.join("\n");
   if (key === builtIcons) return;

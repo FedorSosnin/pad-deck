@@ -1,6 +1,6 @@
 {
   "name": "3DPrintSOS Stream",
-  "saved": "2026-10-29T19:50:44",
+  "saved": "2026-10-30T03:15:48",
   "layout": {
     "columns": 5,
     "rows": 3,
@@ -20,50 +20,54 @@
             "label": "Stream Intro",
             "icon": "deck-clapperboard.svg",
             "scene": "Starting Soon",
-            "bg": "#1a5c1a"
+            "bg": "#1d5e36"
           },
           {
             "label": "Stream Outro",
             "icon": "deck-clapperboard.svg",
             "scene": "Thanks for watching!",
-            "bg": "#0f6670"
+            "bg": "#7a1430"
           },
           {
             "label": "Main Cam",
             "icon": "deck-screen-person.svg",
             "scene": "Main Cam",
-            "bg": "#2b2d32"
+            "bg": "#56308f"
           },
           {
             "label": "Main PIP",
             "icon": "deck-screen-pip.svg",
-            "scene": "Main - Close"
+            "scene": "Main - Close",
+            "bg": "#56308f"
           },
           {
             "label": "Close PIP",
             "icon": "deck-screen-pip-person.svg",
-            "scene": "Close - Main"
-          },
-          {
-            "label": "Browser + Cams",
-            "icon": "deck-screen-website-cams.svg",
-            "scene": "Browser + Cams"
+            "scene": "Close - Main",
+            "bg": "#56308f"
           },
           {
             "label": "Browser View",
             "icon": "deck-screen-website.svg",
-            "scene": "Browser View"
+            "scene": "Browser View",
+            "bg": "#56308f"
+          },
+          {
+            "label": "Remote Cam",
+            "bg": "#56308f",
+            "scene": "Remote Cam",
+            "icon": "deck-phone-camera.svg"
+          },
+          {
+            "label": "Browser + Cams",
+            "icon": "deck-screen-website-cams.svg",
+            "scene": "Browser + Cams",
+            "bg": "#2b2d32"
           },
           {
             "label": "Close up",
             "icon": "deck-camera-closeup.svg",
             "scene": "Closeup Cam"
-          },
-          {
-            "label": "Remote Cam",
-            "bg": "#2b2d32",
-            "scene": "Remote Cam",
-            "icon": "deck-phone-camera.svg"
           },
           {
             "label": "GamePlay",

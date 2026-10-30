@@ -1,6 +1,6 @@
 {
   "sound": true,
-  "vibrate": false,
+  "vibrate": true,
   "volume": 0.4,
   "leds": true
 }
