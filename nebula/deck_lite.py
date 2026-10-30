@@ -713,6 +713,7 @@ class Deck:
         self.touch.start()
         self.render()
         start = None
+        trail = []
         last_poll = 0
         while True:
             try:
@@ -744,9 +745,12 @@ class Deck:
                     continue
                 if self.events.empty():
                     self.refresh()
+            elif kind == "move" and start:
+                trail.append(ev[1:])
             elif kind == "down":
                 _, x, y = ev
                 start = (x, y, time.time())
+                trail = [(x, y)]
                 if y < BAR or self.info:
                     continue
                 i = self.slot_at(x, y)
@@ -755,9 +759,11 @@ class Deck:
                     self.redraw_key(i)
                     self.beep()
             elif kind == "up" and start:
-                _, x, y = ev
+                # Resistive panels report junk positions as the finger lifts, so ignore the release point and
+                # the last couple of readings: judge swipes from the steady part of the movement.
                 sx, sy, _ = start
                 start = None
+                x, y = trail[-3] if len(trail) > 3 else (sx, sy)
                 was, self.pressed = self.pressed, None
                 dy, dx = y - sy, x - sx
                 if self.info:
@@ -773,14 +779,14 @@ class Deck:
                     if 0 <= nxt < n:
                         self.page = nxt
                         self.render()
-                elif was is not None:
+                elif was is not None:                          # a tap on a key (decided by where it landed)
                     self.redraw_key(was)
-                    if self.slot_at(x, y) == was:
-                        try:
-                            self.press(self.buttons()[was])
-                        except OSError:
-                            pass
-                        self.refresh()
+                    print("tap key %d (moved %d,%d over %d readings)" % (was, dx, dy, len(trail)), flush=True)
+                    try:
+                        self.press(self.buttons()[was])
+                    except OSError as e:
+                        print("press failed:", e, flush=True)
+                    self.refresh()
 
 
 if __name__ == "__main__":
