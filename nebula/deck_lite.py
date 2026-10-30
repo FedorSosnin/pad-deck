@@ -674,14 +674,9 @@ class Deck:
             d.ellipse([x, cy - 3, x + 6, cy + 3], fill=col if on else (55, 57, 62))
             d.text((x + 11, text_top(f, label, cy)), label, font=f, fill=(235, 236, 240) if on else (120, 124, 132))
             x += 22 + text_w(f, label)
-        n = len(self.layout.get("pages", [])) or 1
         if self.toast_msg:                                       # a short message in the middle of the bar
             tw = text_w(f, self.toast_msg)
             d.text(((W - tw) // 2, text_top(f, self.toast_msg, cy)), self.toast_msg, font=f, fill=(255, 210, 120))
-        elif n > 1:                                              # page dots, centred
-            for p in range(n):
-                cx = W // 2 - (n - 1) * 7 + p * 14
-                d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=(250, 250, 252) if p == self.page else (75, 78, 84))
         # ☰ menu button (✕ while the menu is open): a small keycap at the right end of the bar
         bx0, by0, bx1, by1 = W - 60, 4, W - 8, BAR - 4
         cap = rounded((bx1 - bx0, by1 - by0), 7, (52, 55, 61, 255))
