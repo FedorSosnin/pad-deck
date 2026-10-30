@@ -399,6 +399,8 @@ class Painter:
         self.icons = {}
         try:                                                     # the Pad 7 keys' grain, tiled
             tile = Image.open(os.path.join(APP, "noise.png")).convert("RGBA")
+            # The Pad 7's grain is ~5% opaque, which vanishes on this small panel: make it 3× stronger.
+            tile.putalpha(tile.getchannel("A").point(lambda v: min(255, v * 3)))
             self.grain = Image.new("RGBA", (W, H))
             for gx in range(0, W, tile.width):
                 for gy in range(0, H, tile.height):
