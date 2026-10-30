@@ -9,7 +9,12 @@ exec >>"$HERE/install.log" 2>&1
 echo "=== $(date) ==="
 
 say() { echo "$*"; printf '\r\n   %s\r\n' "$*" > /dev/tty1 2>/dev/null; }
-fail() { say "Setup couldn't finish: $*"; say "It will try again on the next start (details: install.log on the SD card)."; exit 1; }
+fail() {
+  say "Setup couldn't finish: $*"
+  tail -n 4 "$HERE/install.log" | grep -v '^$' | cut -c1-90 | while read -r l; do say "  $l"; done
+  say "It will try again on the next start (full details: install.log on the SD card)."
+  exit 1
+}
 
 # Take over the screen for progress messages (also skips Armbian's first-login wizard).
 rm -f /root/.not_logged_in_yet
@@ -33,10 +38,26 @@ if [ -n "${SSH_KEY:-}" ]; then
   chown deck:deck /home/deck/.ssh/authorized_keys && chmod 600 /home/deck/.ssh/authorized_keys
 fi
 
+# --- Room for the software: BTT's image starts with its root filesystem the size of the image (~2.7 GB)
+# and Armbian grows it to fill the card during the first start, so make sure that has happened.
+free_mb() { df -m --output=avail / | tail -1 | tr -d ' '; }
+if [ "$(free_mb)" -lt 1500 ]; then
+  say "Making room on the SD card…"
+  systemctl start armbian-resize-filesystem 2>/dev/null
+  root=$(findmnt -n -o SOURCE /)
+  resize2fs "$root" 2>/dev/null
+  if [ "$(free_mb)" -lt 1500 ]; then
+    [ -f "$HERE/.resized" ] && fail "the SD card is too small (use 8 GB or more)"
+    touch "$HERE/.resized"
+    say "Restarting once to finish making room (setup continues automatically)…"
+    sleep 3; systemctl reboot; exit 0
+  fi
+fi
+
 # --- Software
 say "Waiting for Wi-Fi…"
 for _ in $(seq 120); do getent hosts deb.debian.org >/dev/null && break; sleep 5; done
-getent hosts deb.debian.org >/dev/null || fail "no internet. Check WIFI_NAME / WIFI_PASSWORD in pad-deck.conf"
+getent hosts deb.debian.org >/dev/null || fail "no internet. Check the Wi-Fi name and password the image was built with"
 say "Installing software (the longest step)…"
 export DEBIAN_FRONTEND=noninteractive
 apt-get -o DPkg::Lock::Timeout=600 update -q || fail "couldn't reach the software servers"
