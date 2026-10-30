@@ -44,15 +44,16 @@
           "bg": "#56308f"
         },
         {
-          "label": "Browser + Cams",
-          "icon": "deck-screen-website-cams.svg",
-          "scene": "Browser + Cams",
+          "label": "Browser View",
+          "icon": "deck-screen-website.svg",
+          "scene": "Browser View",
           "bg": "#56308f"
         },
         {
-          "label": "Browser View",
-          "icon": "deck-screen-website.svg",
-          "scene": "Browser View"
+          "label": "Browser + Cams",
+          "icon": "deck-screen-website-cams.svg",
+          "scene": "Browser + Cams",
+          "bg": "#2b2d32"
         },
         {
           "label": "Close up",

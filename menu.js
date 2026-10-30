@@ -272,6 +272,14 @@ const Menu = (() => {
           h("div", { className: "layout-info" },
             h("div", { className: "net-name", textContent: l.name }),
             h("div", { className: "hint", textContent: `${l.columns} × ${l.rows} · ${l.buttons} button${l.buttons === 1 ? "" : "s"} · ${l.pages} page${l.pages === 1 ? "" : "s"} · ${when}` })),
+          // Overwrite this saved layout with what's on screen now (e.g. after a small tweak).
+          confirmed("Save", "Tap to overwrite", async () => {
+            try {
+              await api("layouts", { method: "POST", body: JSON.stringify({ name: l.name }) });
+              msg.textContent = `Saved over “${l.name}”.`;
+              refresh();
+            } catch (e) { msg.textContent = e.message; }
+          }),
           confirmed("Load", "Tap to replace current", async () => {
             try {
               await api("layouts/load", { method: "POST", body: JSON.stringify({ name: l.name }) });
