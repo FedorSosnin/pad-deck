@@ -85,16 +85,22 @@ copy it onto the USB stick that came with the Nebula, plug the stick in and tap 
 
 **2. Connect it to Wi-Fi** on its own screen, and note its IP address under Settings → Network.
 
-**3. Install.** One line from your computer: put the Nebula's IP in, and type `creality` when asked for a password.
+**3. Install.** One line from your computer: put in the Nebula's IP and your Wi-Fi name and password, and type
+`creality` when asked for a password. Pad Deck Lite has no keyboard, so this is how the Nebula learns your Wi-Fi.
+To add more networks (say home and office), add more `"name" "password"` pairs at the end.
 
 ```bash
-ssh root@NEBULA-IP 'python3 -c "import urllib.request as u; exec(u.urlopen(\"https://raw.githubusercontent.com/FedorSosnin/pad-deck/main/nebula/get.py\").read())"'
+ssh root@NEBULA-IP 'python3 -c "import urllib.request as u; exec(u.urlopen(\"https://raw.githubusercontent.com/FedorSosnin/pad-deck/main/nebula/get.py\").read())" "WiFi name" "WiFi password"'
 ```
 
 **4. Connect OBS.** Open `http://NEBULA-IP:8099` in a browser, choose ☰ → OBS and enter your computer's name or
 IP. Tap ✎ there to add your keys.
 
-Run the same line again to update. To put Creality's screen back:
+**New Wi-Fi later?** Put a text file called `pad-deck-wifi.txt` on a USB stick, with the network name on the first
+line and the password on the second, and plug it into the Nebula. It adds the network, shows "Wi-Fi added" and
+deletes the file from the stick.
+
+Run the install line again to update. To put Creality's screen back:
 `ssh root@NEBULA-IP sh /usr/data/pad-deck/uninstall.sh`. The Nebula runs on 5 V, so without a printer power
 it from its own 5 V connector.
 

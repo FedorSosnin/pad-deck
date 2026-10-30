@@ -894,7 +894,7 @@ class Deck:
                     self.menu_hits.append((bx0 - 10, y, bx0 + 54, y + 48, action))
                 d.text((cx1 - 89 - text_w(f, pct) // 2, text_top(f, pct, mid)), pct, font=f, fill=(200, 204, 212))
             else:
-                hint = "change in the editor"
+                hint = "add: USB stick"                          # pad-deck-wifi.txt (see README)
                 d.text((cx1 - 18 - text_w(f, hint), text_top(f, hint, mid)), hint, font=f, fill=(120, 124, 132))
             y += 48
 
