@@ -328,17 +328,31 @@ for (const b of document.querySelectorAll("[data-step]")) {
   b.onclick = () => {
     const [key, d] = b.dataset.step.split(",");
     const next = { ...layout, [key]: Math.min(8, Math.max(1, layout[key] + +d)) };
-    // Changing the grid reflows buttons in order; empty slots are dropped first.
+    // Changing the grid reflows buttons in order; empty slots are dropped first. Keys that still don't fit
+    // move on to the next page's free slots (any left over get a new page after it), so shrinking never loses a key.
     const size = next.columns * next.rows;
-    if (layout.pages.some((p) => p.buttons.filter(Boolean).length > size)) return toast("Remove some buttons first");
-    const pages = layout.pages.map((p) => {
-      const list = p.buttons.slice();
-      while (list.length > size) list.splice(list.lastIndexOf(null), 1);
-      return { ...p, buttons: list };
-    });
+    const pages = layout.pages.map((p) => ({ ...p, buttons: p.buttons.slice() }));
+    let moved = 0;
+    for (let i = 0; i < pages.length; i++) {
+      const list = pages[i].buttons;
+      while (list.length > size && list.includes(null)) list.splice(list.lastIndexOf(null), 1);
+      const overflow = list.splice(size).filter(Boolean);
+      if (!overflow.length) continue;
+      moved += overflow.length;
+      const after = pages[i + 1];
+      if (after) {
+        // Fill the next page's free slots within the new size; anything left starts a page of its own.
+        const nextList = after.buttons.slice(0, size);
+        while (nextList.length < size) nextList.push(null);
+        after.buttons = nextList.concat(after.buttons.slice(size));
+        for (let j = 0; j < size && overflow.length; j++) if (!after.buttons[j]) after.buttons[j] = overflow.shift();
+      }
+      if (overflow.length) pages.splice(i + (after ? 2 : 1), 0, { buttons: overflow }); // after the next page
+    }
     layout = { ...next, pages };
     normalize();
     render();
+    if (moved) toast(`${moved} key${moved === 1 ? "" : "s"} moved to the next page`);
   };
 }
 
@@ -642,7 +656,7 @@ function buildPeeks() {
   for (const p of Object.values(peekCache?.els || {})) p.remove();
   peekCache = null;
   if (editing) return;
-  const h = $("stage").clientHeight, els = {};
+  const els = {};
   for (const dir of [1, -1]) {
     const next = page + dir;
     const list = next < 0 ? null : next < layout.pages.length ? layout.pages[next].buttons
@@ -652,7 +666,8 @@ function buildPeeks() {
     peek.className = "grid leaving";
     peek.style.cssText = grid.style.cssText;
     peek.append(...slotsFor(list), ...(list.some(Boolean) ? [] : [emptyHint()]));
-    peek.style.transform = `translateY(${dir * h}px)`;
+    // A percentage of its own height (= the stage's), so it stays fully off-screen even if the stage resizes.
+    peek.style.transform = `translateY(${dir * 100}%)`;
     $("stage").append(peek);
     els[dir] = peek;
   }
