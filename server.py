@@ -359,7 +359,8 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/layouts":
             return self.send_json(list_layouts())
         if path == "/api/icons":
-            return self.send_json(sorted(n for n in os.listdir(ICONS) if n.lower().endswith(ICON_TYPES)))
+            return self.send_json(sorted(n for n in os.listdir(ICONS)
+                                         if n.lower().endswith(ICON_TYPES) and not n.startswith(".")))
         if path == "/api/settings":
             try:
                 with open(SETTINGS) as f:

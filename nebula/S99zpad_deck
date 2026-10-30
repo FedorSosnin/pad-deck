@@ -1,0 +1,27 @@
+#!/bin/sh
+# Pad Deck Lite on the Creality Nebula Pad: the stream deck on the screen, and Pad Deck's web editor on
+# port 8099. Creality's own screen UI (S99start_app) is switched off by install.sh; uninstall.sh restores it.
+D=/usr/data/pad-deck
+
+start() {
+    killall boot_display jpeg_display_shell 2>/dev/null
+    # Each keeps itself running: if it ever exits, it starts again two seconds later.
+    ( cd $D/app && while true; do python3 server.py 8099 >>/tmp/pad-deck-server.log 2>&1; sleep 2; done ) &
+    echo $! > /tmp/pad-deck-server.pid
+    ( cd $D/lite && while true; do python3 deck_lite.py >>/tmp/pad-deck-lite.log 2>&1; sleep 2; done ) &
+    echo $! > /tmp/pad-deck-lite.pid
+}
+
+stop() {
+    for p in /tmp/pad-deck-server.pid /tmp/pad-deck-lite.pid; do
+        [ -f $p ] && kill $(cat $p) 2>/dev/null; rm -f $p
+    done
+    for pid in $(ps | grep -E "deck_lite.py|server.py 8099" | grep -v grep | awk '{print $1}'); do kill $pid; done
+}
+
+case "$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; sleep 1; start ;;
+    *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
+esac

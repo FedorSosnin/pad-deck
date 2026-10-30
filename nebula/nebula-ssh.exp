@@ -1,0 +1,16 @@
+#!/usr/bin/expect -f
+# Runs one command on a rooted Nebula Pad as root, typing the stock password ("creality") for you,
+# and prints its output.   expect nebula/nebula-ssh.exp <nebula-ip> '<command>'
+set timeout 120
+lassign $argv host cmd
+log_user 0
+match_max 10000000
+set out ""
+spawn -noecho ssh -o StrictHostKeyChecking=accept-new -o PubkeyAuthentication=no -o LogLevel=ERROR root@$host $cmd
+expect {
+  -re "(?i)password: ?$" { send "creality\r"; exp_continue }
+  -re ".+" { append out $expect_out(buffer); exp_continue }
+  eof { append out $expect_out(buffer) }
+  timeout { append out "\n(timed out)" }
+}
+puts -nonewline [string trimleft $out "\r\n"]
