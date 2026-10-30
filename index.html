@@ -135,13 +135,15 @@
   .btn.live .led { background: var(--led-green); box-shadow: 0 0 6px 1px var(--led-green), 0 0 16px 2px rgba(77,255,134,.45), inset 0 -1px 1px rgba(0,0,0,.25); }
   .btn.live { box-shadow: inset 0 1px 0 rgba(255,255,255,.22), inset 0 0 0 2px rgba(77,255,134,.55), 0 6px 0 var(--edge), 0 9px 18px rgba(0,0,0,.55), 0 0 22px rgba(77,255,134,.18); }
   .btn.hot .led { background: var(--led-red); box-shadow: 0 0 6px 1px var(--led-red), 0 0 16px 2px rgba(255,59,78,.45); }
-  .btn.muted { color: rgba(255,255,255,.62); }
-  .btn.muted .ico { opacity: .72; }
+  /* Muted: dimmer, but solid (no see-through keys). */
+  .btn.muted { color: color-mix(in srgb, #fff 62%, var(--bg)); }
+  .btn.muted img { filter: brightness(.72) drop-shadow(0 1px 1px rgba(0,0,0,.6)); }
+  .btn.light.muted { color: color-mix(in srgb, #1b1c1f 62%, var(--bg)); }
+  .btn.light.muted img { filter: invert(.75) drop-shadow(0 1px 0 rgba(255,255,255,.5)); }
   /* Muted: a white slash drawn into the icon, with a gap cut around it in the key's colour (like a mic.slash glyph) */
   .btn .slash { position: absolute; left: 50%; top: 12%; width: 4px; height: 76%; border-radius: 2px;
     background: #fff; transform: translateX(-50%) rotate(-45deg);
     box-shadow: 0 0 0 3px var(--bg), 0 1px 1px 3px rgba(0,0,0,.25); }
-  .btn.unknown { opacity: .55; }
 
   /* ---------- Edit mode ---------- */
   body.editing .btn.live, body.editing .btn.live .led { box-shadow: none; }
@@ -158,7 +160,7 @@
   .del { position: absolute !important; top: -8px; left: -8px; width: 30px; height: 30px; border-radius: 50%; border: 0;
     background: #d23545; color: #fff; font: 700 18px/1 system-ui; display: none; z-index: 2; box-shadow: 0 2px 6px rgba(0,0,0,.5); }
   body.editing .del { display: block; }
-  .dragging { opacity: .25; }
+  .dragging { filter: brightness(.35) saturate(.5); }
   .drop-target { outline: 3px solid var(--accent) !important; }
   #ghost { position: fixed; left: 0; top: 0; pointer-events: none; z-index: 50; opacity: .92; will-change: transform;
     transform: translate3d(-9999px, 0, 0); box-shadow: 0 18px 34px rgba(0,0,0,.7); }
