@@ -426,8 +426,9 @@ function buildPickers() {
 }
 
 function markPickers() {
-  for (const s of $("swatches").querySelectorAll(".swatch")) s.classList.toggle("on", s.dataset.color === draft.bg);
+  for (const s of $("swatches").querySelectorAll(".swatch")) s.classList.toggle("on", s.dataset.color === (draft.bg || SWATCHES[0]));
   $("colorCustom").value = draft.bg || SWATCHES[0];
+  $("colorCustom").classList.toggle("on", !SWATCHES.includes(draft.bg || SWATCHES[0])); // a custom colour is chosen
   for (const b of $("icons").children) b.classList.toggle("on", b.dataset.icon === (draft.icon || ""));
 }
 
