@@ -372,7 +372,10 @@ function openEditor(i) {
     draft.label = draft.scene;
   }
   fillEditor();
-  $("editor").classList.add("open");
+  // The tap that opened the editor still has a click to come, which would land on whatever is now under
+  // the finger (often the scene dropdown, which then pops open). Ignore touches for a moment.
+  $("editor").classList.add("open", "arming");
+  setTimeout(() => $("editor").classList.remove("arming"), 450);
   const before = JSON.stringify(lists);
   refreshLists().then(() => {
     if (editIndex !== i || !$("editor").classList.contains("open") || JSON.stringify(lists) === before) return;
