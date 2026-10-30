@@ -50,7 +50,8 @@ SETTINGS = os.path.join(ROOT, "settings.json")
 ICONS = os.path.join(ROOT, "icons")
 ICON_TYPES = (".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif")
 DEFAULT_SETTINGS = {"sound": True, "vibrate": True, "volume": 0.6, "leds": True,
-                    "obsHost": "", "obsPort": 4455, "obsPassword": ""}  # OBS: Menu → OBS
+                    "obsHost": "", "obsPort": 4455, "obsPassword": "",  # OBS: Menu → OBS
+                    "brightness": 180}  # screen backlight (Pad Deck Lite on the Nebula)
 VIBRATION = "/sys/class/leds/pad7_vibration/brightness"
 BTT_CFG = "/boot/system.cfg"   # BTT's boot script reconnects to the Wi-Fi named here
 LOCAL = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}

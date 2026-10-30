@@ -29,7 +29,9 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 APP = os.path.join(ROOT, "..", "app")
 ASSETS = os.path.join(ROOT, "assets")
 W, H = 480, 272
-BAR = 26                      # status bar height
+BAR = 34                      # status bar height
+MENU_HIT = (W - 84, 0, W, BAR + 14)   # generous touch area for the ☰ button (resistive panels aren't precise)
+BACKLIGHT = "/sys/class/backlight/backlight_pwm0/brightness"   # 0–300
 FB = "/dev/fb0"
 TOUCH = "/dev/input/event0"
 BEEP = "/usr/bin/beep"
@@ -505,6 +507,8 @@ class Deck:
         self.pressed = None
         self.info = False
         self.frame = None
+        self.toast_msg, self.toast_until = None, 0
+        self.menu_hits = []         # (x0, y0, x1, y1, action) for the buttons on the menu card
         self.drawn = {}             # slot → state signature of the key currently on screen
         self.bar_drawn = None
         self.warm = []              # (button, w, h, state) keycaps to pre-draw while idle
@@ -589,9 +593,20 @@ class Deck:
             d.text((x + 11, 5), label, font=self.paint.small, fill=(235, 236, 240) if on else (120, 124, 132))
             x += 22 + text_w(self.paint.small, label)
         n = len(self.layout.get("pages", [])) or 1
-        for p in range(n):                                       # page dots, right-aligned
-            cx = W - 14 - (n - 1 - p) * 12
-            d.ellipse([cx - 3, 10, cx + 3, 16], fill=(250, 250, 252) if p == self.page else (75, 78, 84))
+        if self.toast_msg:                                       # a short message in the middle of the bar
+            tw = text_w(self.paint.small, self.toast_msg)
+            d.text(((W - tw) // 2, 10), self.toast_msg, font=self.paint.small, fill=(255, 210, 120))
+        elif n > 1:                                              # page dots, centred
+            for p in range(n):
+                cx = W // 2 - (n - 1) * 7 + p * 14
+                d.ellipse([cx - 4, BAR // 2 - 4, cx + 4, BAR // 2 + 4], fill=(250, 250, 252) if p == self.page else (75, 78, 84))
+        # ☰ menu button: a small keycap at the right end of the bar
+        bx0, by0, bx1, by1 = W - 60, 4, W - 8, BAR - 4
+        cap = rounded((bx1 - bx0, by1 - by0), 7, (52, 55, 61, 255))
+        img.paste(cap, (bx0, by0), cap)
+        for k in range(3):
+            yy = by0 + 7 + k * 6
+            d.line([(bx0 + 16, yy), (bx1 - 16, yy)], fill=(225, 228, 234), width=2)
 
     def render(self):
         img = self.paint.bg.copy()
@@ -623,7 +638,12 @@ class Deck:
         return json.dumps([b, self.key_state(b, i)], sort_keys=True) if b else None
 
     def bar_sig(self):
-        return (self.state["status"], self.state["stream"], self.state["rec"], self.page, len(self.layout.get("pages", [])))
+        return (self.state["status"], self.state["stream"], self.state["rec"], self.page,
+                len(self.layout.get("pages", [])), self.toast_msg)
+
+    def toast(self, msg, seconds=1.8):
+        self.toast_msg, self.toast_until = msg, time.time() + seconds
+        self.refresh()
 
     def refresh(self):
         if self.info or self.frame is None:
@@ -671,23 +691,72 @@ class Deck:
         self.frame.paste(patch, box[:2])
         self.screen.show(self.frame, box)
 
+    def in_menu_button(self, x, y):
+        x0, y0, x1, y1 = MENU_HIT
+        return x0 <= x <= x1 and y0 <= y <= y1
+
     def editor_url(self):
         return "http://%s:%d" % (local_ip(), EDITOR_PORT)
 
     def draw_info(self, img):
+        """The ☰ menu: where to edit, OBS status, and big buttons for sound, brightness and close."""
         d = ImageDraw.Draw(img)
-        card = rounded((W - 40, H - BAR - 30), 14, (20, 21, 24, 240))
-        img.paste(card, (20, BAR + 15), card)
+        cx0, cy0, cx1, cy1 = 12, BAR + 6, W - 12, H - 8
+        card = rounded((cx1 - cx0, cy1 - cy0), 14, (20, 21, 24, 245))
+        img.paste(card, (cx0, cy0), card)
         host = self.settings.get("obsHost") or "not set"
-        lines = [("Pad Deck Lite", self.paint.big, (255, 255, 255)),
-                 ("Edit keys, pages and OBS from any browser:", self.paint.label, (150, 154, 162)),
-                 (self.editor_url(), self.paint.big, GREEN),
-                 ("OBS computer: %s (%s)" % (host, self.state["status"]), self.paint.label, (200, 204, 212)),
-                 ("Swipe up/down for pages · tap to close", self.paint.label, (120, 124, 132))]
-        y = BAR + 30
-        for text, f, col in lines:
-            d.text((40, y), text, font=f, fill=col)
-            y += 34 if f is self.paint.big else 26
+        d.text((cx0 + 18, cy0 + 12), "Edit keys, pages and OBS from a browser:", font=self.paint.label, fill=(150, 154, 162))
+        d.text((cx0 + 18, cy0 + 34), self.editor_url(), font=self.paint.big, fill=GREEN)
+        d.text((cx0 + 18, cy0 + 68), "OBS: %s (%s)" % (host, self.state["status"]), font=self.paint.label, fill=(200, 204, 212))
+        level = int(self.settings.get("brightness", 180))
+        y0, y1 = cy1 - 64, cy1 - 14
+        buttons = [("Sound: %s" % ("On" if self.settings.get("sound", True) else "Off"), cx0 + 14, cx0 + 140, "sound"),
+                   ("−", cx0 + 150, cx0 + 202, "dim"),
+                   ("+", cx0 + 290, cx0 + 342, "bright"),
+                   ("Close", cx0 + 352, cx1 - 14, "close")]
+        self.menu_hits = []
+        for text, x0, x1, action in buttons:
+            cap = rounded((x1 - x0, y1 - y0), 10, (52, 55, 61, 255))
+            img.paste(cap, (x0, y0), cap)
+            f = self.paint.big
+            tw = text_w(f, text)
+            d.text((x0 + (x1 - x0 - tw) // 2, y0 + 12), text, font=f, fill=(238, 240, 244))
+            self.menu_hits.append((x0 - 4, y0 - 10, x1 + 4, y1 + 10, action))
+        label = "Light %d%%" % round(level / 3)
+        tw = text_w(self.paint.label, label)
+        d.text((cx0 + 246 - tw // 2, y0 + 15), label, font=self.paint.label, fill=(200, 204, 212))
+
+    def menu_action(self, action):
+        if action == "sound":
+            self.save_setting("sound", not self.settings.get("sound", True))
+        elif action in ("dim", "bright"):
+            level = int(self.settings.get("brightness", 180)) + (30 if action == "bright" else -30)
+            self.save_setting("brightness", max(30, min(300, level)))
+            self.apply_brightness()
+        elif action == "close":
+            self.info = False
+        self.render()
+
+    def save_setting(self, key, value):
+        """Change one setting in settings.json (shared with the web editor)."""
+        self.settings[key] = value
+        path = os.path.join(APP, "settings.json")
+        try:
+            data = json.load(open(path))
+        except (OSError, ValueError):
+            data = {}
+        data[key] = value
+        with open(path + ".tmp", "w") as f:
+            json.dump(data, f, indent=2)
+        os.replace(path + ".tmp", path)
+        self.mtimes["settings.json"] = os.path.getmtime(path)
+
+    def apply_brightness(self):
+        try:
+            with open(BACKLIGHT, "w") as f:
+                f.write(str(int(self.settings.get("brightness", 180))))
+        except (OSError, ValueError):
+            pass
 
     # -- input
     def beep(self):
@@ -708,6 +777,7 @@ class Deck:
     def run(self):
         os.system("killall boot_display jpeg_display_shell 2>/dev/null")
         self.load()
+        self.apply_brightness()
         self.obs.start()
         self.touch = Touch(self.events)
         self.touch.start()
@@ -721,6 +791,9 @@ class Deck:
             except queue.Empty:
                 ev = None
                 self.warm_one()
+            if self.toast_msg and time.time() > self.toast_until:
+                self.toast_msg = None
+                self.refresh()
             if time.time() - last_poll > 1:
                 last_poll = time.time()
                 if self.load():
@@ -751,7 +824,7 @@ class Deck:
                 _, x, y = ev
                 start = (x, y, time.time())
                 trail = [(x, y)]
-                if y < BAR or self.info:
+                if y < BAR or self.info or self.in_menu_button(x, y):
                     continue
                 i = self.slot_at(x, y)
                 if i is not None and self.buttons()[i]:
@@ -766,19 +839,29 @@ class Deck:
                 x, y = trail[-3] if len(trail) > 3 else (sx, sy)
                 was, self.pressed = self.pressed, None
                 dy, dx = y - sy, x - sx
-                if self.info:
-                    self.info = False
-                    self.render()
-                elif sy < BAR and abs(dx) < 30 and abs(dy) < 30:  # tap the status bar: info card
+                if self.info:                                    # a button on the menu card, or outside it
+                    hit = next((a for x0, y0, x1, y1, a in self.menu_hits if x0 <= sx <= x1 and y0 <= sy <= y1), None)
+                    if hit:
+                        self.beep()
+                        self.menu_action(hit)
+                    elif not (12 <= sx <= W - 12 and BAR + 6 <= sy <= H - 8):
+                        self.info = False
+                        self.render()
+                elif self.in_menu_button(sx, sy) and abs(dx) < 40 and abs(dy) < 40:
+                    self.beep()
                     self.info = True
                     self.render()
-                elif abs(dy) > 45 and abs(dy) > abs(dx):          # swipe: up = next page, down = previous
+                elif abs(dy) > 40 and abs(dy) > abs(dx):          # swipe: up = next page, down = previous
                     n = len(self.layout.get("pages", [])) or 1
                     nxt = self.page + (1 if dy < 0 else -1)
+                    print("swipe %s (moved %d,%d)" % ("up" if dy < 0 else "down", dx, dy), flush=True)
                     self.redraw_key(was)
                     if 0 <= nxt < n:
                         self.page = nxt
                         self.render()
+                    else:
+                        self.toast("Only one page · add pages in the editor" if n == 1
+                                   else "Last page" if nxt >= n else "First page")
                 elif was is not None:                          # a tap on a key (decided by where it landed)
                     self.redraw_key(was)
                     print("tap key %d (moved %d,%d over %d readings)" % (was, dx, dy, len(trail)), flush=True)
