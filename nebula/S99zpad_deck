@@ -6,7 +6,7 @@ D=/usr/data/pad-deck
 start() {
     killall boot_display jpeg_display_shell 2>/dev/null
     # Each keeps itself running: if it ever exits, it starts again two seconds later.
-    ( cd $D/app && while true; do PAD_DECK_REMOTE_ADMIN=1 python3 server.py 8099 >>/tmp/pad-deck-server.log 2>&1; sleep 2; done ) &
+    ( cd $D/app && while true; do PAD_DECK_DEVICE=nebula PAD_DECK_REMOTE_ADMIN=1 python3 server.py 8099 >>/tmp/pad-deck-server.log 2>&1; sleep 2; done ) &
     echo $! > /tmp/pad-deck-server.pid
     ( cd $D/lite && while true; do python3 deck_lite.py >>/tmp/pad-deck-lite.log 2>&1; sleep 2; done ) &
     echo $! > /tmp/pad-deck-lite.pid

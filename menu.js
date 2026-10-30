@@ -55,6 +55,18 @@ const Menu = (() => {
     links.append(a);
   }
 
+  // On the Nebula (Pad Deck Lite) the screen has its own sound switch, there's no vibration motor, LEDs or
+  // browser on the device, and the terminal only works on the device's own screen: hide those.
+  let device = "pad7";
+  fetch("api/device").then((r) => r.json()).then(({ device: d }) => {
+    device = d;
+    if (device !== "nebula") return;
+    for (const id of ["sound", "terminal"]) {
+      SECTIONS.splice(SECTIONS.findIndex((s) => s.id === id), 1);
+      links.querySelector(`[data-id="${id}"]`)?.remove();
+    }
+  }).catch(() => {});
+
   function open(id = current?.id || SECTIONS[0].id) {
     root.classList.add("open");
     show(id);
@@ -343,20 +355,22 @@ const Menu = (() => {
       const s = await api("system");
       info.replaceChildren(...[
         ["Device", s.hostname], ["Address", s.ip || "—"], ["Wi-Fi", s.ssid || "—"],
-        ["OBS", `${obs.url.replace("ws://", "")}`], ["Up for", s.uptime], ["Temperature", s.temp ? `${s.temp} °C` : "—"],
+        ["OBS", `${obs.url.replace("ws://", "")}`], ["Up for", s.uptime || "—"], ["Temperature", s.temp ? `${s.temp} °C` : "—"],
       ].map(([k, v]) => h("div", { className: "kv-row" }, h("span", { textContent: k }), h("b", { textContent: v }))));
     } catch (e) { info.textContent = e.message; }
 
-    // The two status LEDs on top of the Pad.
-    const leds = h("button", { className: `switch${Feedback.settings.leds ? " on" : ""}` }, h("i"));
-    leds.onclick = async () => {
-      leds.classList.toggle("on");
-      await Feedback.save({ leds: leds.classList.contains("on") });
-      updateLeds();
-    };
-    el.append(h("div", { className: "card setting" }, h("div", {},
-      h("div", { className: "big", textContent: "Status lights" }),
-      h("div", { className: "hint", textContent: "Left: OBS connected. Right: live." })), leds));
+    // The two status LEDs on top of the Pad 7 (the Nebula has none).
+    if (device !== "nebula") {
+      const leds = h("button", { className: `switch${Feedback.settings.leds ? " on" : ""}` }, h("i"));
+      leds.onclick = async () => {
+        leds.classList.toggle("on");
+        await Feedback.save({ leds: leds.classList.contains("on") });
+        updateLeds();
+      };
+      el.append(h("div", { className: "card setting" }, h("div", {},
+        h("div", { className: "big", textContent: "Status lights" }),
+        h("div", { className: "hint", textContent: "Left: OBS connected. Right: live." })), leds));
+    }
 
     const confirmed = (label, action, cls) => {
       const b = button(label, async () => {
@@ -371,8 +385,8 @@ const Menu = (() => {
       return b;
     };
     el.append(h("div", { className: "row actions" },
-      button("Reload screen", () => location.reload()),
-      confirmed("Restart Pad", "reboot"),
+      device === "nebula" ? null : button("Reload screen", () => location.reload()),
+      confirmed(device === "nebula" ? "Restart" : "Restart Pad", "reboot"),
       confirmed("Shut down", "shutdown", "danger"),
     ));
   }

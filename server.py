@@ -5,6 +5,7 @@
 
 GET  /api/layout              current layout (layout.json)
 PUT  /api/layout              save layout
+GET  /api/device              {"device": "pad7" | "nebula"}, so the editor can hide what this device lacks
 GET  /api/layouts             saved layouts: [{name, saved, pages, buttons}], newest first
 POST /api/layouts             {name} save the current layout under that name (replaces one with the same name)
 POST /api/layouts/load        {name} make a saved layout current (the one it replaces is kept as "Before last load")
@@ -59,6 +60,7 @@ LOCAL = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 # Devices with no browser on their own screen (Pad Deck Lite on the Nebula) manage Wi-Fi and power from the
 # web editor instead, so those sections also answer other computers on the network. The terminal never does.
 REMOTE_ADMIN = os.environ.get("PAD_DECK_REMOTE_ADMIN") == "1"
+DEVICE = os.environ.get("PAD_DECK_DEVICE", "pad7")   # "nebula" for Pad Deck Lite: the editor hides what it lacks
 NMCLI = shutil.which("nmcli") is not None   # the Pad 7 (NetworkManager); otherwise wpa_supplicant (the Nebula)
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
@@ -163,7 +165,10 @@ def nm_fields(line):
 
 
 def wifi_ip():
-    out = run("ip", "-4", "-o", "addr", "show", "wlan0").stdout
+    try:
+        out = run("ip", "-4", "-o", "addr", "show", "wlan0").stdout
+    except OSError:
+        return None
     m = re.search(r"inet (\S+)/", out)
     return m.group(1) if m else None
 
@@ -276,18 +281,25 @@ def wifi_connect(ssid, password):
 # ---------- System ----------
 
 def system_info():
-    up = int(float(open("/proc/uptime").read().split()[0]))
+    try:
+        up = int(float(open("/proc/uptime").read().split()[0]))
+    except OSError:                                              # not Linux (e.g. the dev preview on a Mac)
+        up = None
     try:
         temp = round(int(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000)
     except OSError:
         temp = None
-    if NMCLI:
-        ssid = next((nm_fields(l)[1] for l in run("nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi").stdout.splitlines()
-                     if l.startswith("yes:")), None)
-    else:
-        ssid = dict(l.split("=", 1) for l in wpa("status").splitlines() if "=" in l).get("ssid")
+    try:
+        if NMCLI:
+            ssid = next((nm_fields(l)[1] for l in run("nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi").stdout.splitlines()
+                         if l.startswith("yes:")), None)
+        else:
+            ssid = dict(l.split("=", 1) for l in wpa("status").splitlines() if "=" in l).get("ssid")
+    except OSError:                                              # no Wi-Fi tools here (e.g. the dev preview on a Mac)
+        ssid = None
     return {"hostname": socket.gethostname(), "ip": wifi_ip(), "ssid": ssid, "temp": temp,
-            "uptime": f"{up // 86400}d {up % 86400 // 3600}h {up % 3600 // 60}m" if up >= 86400 else f"{up // 3600}h {up % 3600 // 60}m"}
+            "uptime": None if up is None else f"{up // 86400}d {up % 86400 // 3600}h {up % 3600 // 60}m" if up >= 86400
+            else f"{up // 3600}h {up % 3600 // 60}m"}
 
 
 # ---------- Terminal over WebSocket ----------
@@ -423,6 +435,8 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/layout":
             with open(LAYOUT) as f:
                 return self.send_json(json.load(f))
+        if path == "/api/device":
+            return self.send_json({"device": DEVICE})
         if path == "/api/layouts":
             return self.send_json(list_layouts())
         if path == "/api/icons":
