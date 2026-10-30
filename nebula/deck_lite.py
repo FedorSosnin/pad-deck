@@ -955,8 +955,8 @@ class Deck:
                     self.redraw_key(i)
                     self.beep()
             elif kind == "up" and start:
-                # Resistive panels report junk positions as the finger lifts, so ignore the release point and
-                # the last couple of readings: judge swipes from the steady part of the movement.
+                # Every touch is a tap on whatever the finger landed on (no swipes: the ▲/▼ buttons change pages).
+                # Resistive panels report junk positions as the finger lifts, so the release point is ignored.
                 sx, sy, _ = start
                 start = None
                 x, y = trail[-3] if len(trail) > 3 else (sx, sy)
@@ -975,17 +975,6 @@ class Deck:
                 elif self.rail_at(sx, sy):                       # ▲/▼ page buttons
                     self.page += self.rail_at(sx, sy)
                     self.render()
-                elif abs(dy) > 40 and abs(dy) > abs(dx):          # swipe: up = next page, down = previous
-                    n = len(self.layout.get("pages", [])) or 1
-                    nxt = self.page + (1 if dy < 0 else -1)
-                    print("swipe %s (moved %d,%d)" % ("up" if dy < 0 else "down", dx, dy), flush=True)
-                    self.redraw_key(was)
-                    if 0 <= nxt < n:
-                        self.page = nxt
-                        self.render()
-                    else:
-                        self.toast("Only one page · add pages in the editor" if n == 1
-                                   else "Last page" if nxt >= n else "First page")
                 elif was is not None:                          # a tap on a key (decided by where it landed)
                     self.redraw_key(was)
                     print("tap key %d (moved %d,%d over %d readings)" % (was, dx, dy, len(trail)), flush=True)
