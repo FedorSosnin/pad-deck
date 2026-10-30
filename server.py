@@ -42,6 +42,7 @@ import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import unquote_plus
+import shutil
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 LAYOUT = os.path.join(ROOT, "layout.json")
@@ -55,6 +56,10 @@ DEFAULT_SETTINGS = {"sound": True, "vibrate": True, "volume": 0.6, "leds": True,
 VIBRATION = "/sys/class/leds/pad7_vibration/brightness"
 BTT_CFG = "/boot/system.cfg"   # BTT's boot script reconnects to the Wi-Fi named here
 LOCAL = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
+# Devices with no browser on their own screen (Pad Deck Lite on the Nebula) manage Wi-Fi and power from the
+# web editor instead, so those sections also answer other computers on the network. The terminal never does.
+REMOTE_ADMIN = os.environ.get("PAD_DECK_REMOTE_ADMIN") == "1"
+NMCLI = shutil.which("nmcli") is not None   # the Pad 7 (NetworkManager); otherwise wpa_supplicant (the Nebula)
 WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -163,7 +168,62 @@ def wifi_ip():
     return m.group(1) if m else None
 
 
+# Nebula Pad: wpa_supplicant via wpa_cli (its config has update_config=1, so save_config persists).
+
+def wpa(*args):
+    return run("wpa_cli", "-i", "wlan0", *args, timeout=15).stdout
+
+
+def wpa_state(rescan):
+    if rescan:
+        wpa("scan")
+        time.sleep(3)
+    status = dict(l.split("=", 1) for l in wpa("status").splitlines() if "=" in l)
+    nets = {}
+    for line in wpa("scan_results").splitlines()[1:]:
+        parts = line.split("\t")
+        if len(parts) < 5 or not parts[4]:
+            continue
+        ssid, signal = parts[4], max(0, min(100, 2 * (int(parts[2]) + 100)))   # dBm → rough percent
+        n = {"ssid": ssid, "signal": signal, "secure": "WPA" in parts[3] or "WEP" in parts[3],
+             "active": ssid == status.get("ssid") and status.get("wpa_state") == "COMPLETED"}
+        if ssid not in nets or n["signal"] > nets[ssid]["signal"]:
+            nets[ssid] = n
+    networks = sorted(nets.values(), key=lambda n: (not n["active"], -n["signal"]))
+    active = next((n for n in networks if n["active"]), None)
+    current = {"ssid": active["ssid"], "signal": active["signal"], "ip": status.get("ip_address")} if active else None
+    return {"current": current, "networks": networks}
+
+
+def wpa_connect(ssid, password):
+    ids = {l.split("\t")[1]: l.split("\t")[0] for l in wpa("list_networks").splitlines()[1:] if "\t" in l}
+    nid = ids.get(ssid) or wpa("add_network").strip().splitlines()[-1]
+    wpa("set_network", nid, "ssid", ssid.encode().hex())        # hex: any characters are safe
+    if password:
+        # The WPA key derived from the passphrase (what wpa_passphrase does), so quotes etc. need no escaping.
+        psk = hashlib.pbkdf2_hmac("sha1", password.encode(), ssid.encode(), 4096, 32).hex()
+        wpa("set_network", nid, "psk", psk)
+        wpa("set_network", nid, "key_mgmt", "WPA-PSK")
+    else:
+        wpa("set_network", nid, "key_mgmt", "NONE")
+    wpa("set_network", nid, "scan_ssid", "1")
+    wpa("select_network", nid)
+    for _ in range(25):
+        time.sleep(1)
+        st = dict(l.split("=", 1) for l in wpa("status").splitlines() if "=" in l)
+        if st.get("wpa_state") == "COMPLETED" and st.get("ssid") == ssid:
+            wpa("enable_network", "all")                         # select_network disabled the others; keep them as fallbacks
+            wpa("save_config")
+            run("udhcpc", "-i", "wlan0", "-n", "-q", timeout=20)
+            return True, "Connected"
+    wpa("enable_network", "all")
+    wpa("reconnect")
+    return False, "Couldn't connect. Check the password."
+
+
 def wifi_state(rescan):
+    if not NMCLI:
+        return wpa_state(rescan)
     out = run("sudo", "nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list",
               "--rescan", "yes" if rescan else "auto", timeout=30).stdout
     nets = {}
@@ -186,6 +246,8 @@ def cfg_quote(value):
 
 
 def wifi_connect(ssid, password):
+    if not NMCLI:
+        return wpa_connect(ssid, password)
     cmd = ["sudo", "nmcli", "dev", "wifi", "connect", ssid, "ifname", "wlan0"]
     if password:
         cmd[6:6] = ["password", password]  # after the SSID
@@ -219,8 +281,11 @@ def system_info():
         temp = round(int(open("/sys/class/thermal/thermal_zone0/temp").read()) / 1000)
     except OSError:
         temp = None
-    ssid = next((nm_fields(l)[1] for l in run("nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi").stdout.splitlines()
-                 if l.startswith("yes:")), None)
+    if NMCLI:
+        ssid = next((nm_fields(l)[1] for l in run("nmcli", "-t", "-f", "ACTIVE,SSID", "dev", "wifi").stdout.splitlines()
+                     if l.startswith("yes:")), None)
+    else:
+        ssid = dict(l.split("=", 1) for l in wpa("status").splitlines() if "=" in l).get("ssid")
     return {"hostname": socket.gethostname(), "ip": wifi_ip(), "ssid": ssid, "temp": temp,
             "uptime": f"{up // 86400}d {up % 86400 // 3600}h {up % 3600 // 60}m" if up >= 86400 else f"{up // 3600}h {up % 3600 // 60}m"}
 
@@ -346,8 +411,9 @@ class Handler(SimpleHTTPRequestHandler):
             except OSError:
                 pass
 
-    def local_only(self):
-        if self.client_address[0] in LOCAL:
+    def local_only(self, admin=True):
+        """Pad-only features. `admin` ones (Wi-Fi, system) are also open to the network on REMOTE_ADMIN devices."""
+        if self.client_address[0] in LOCAL or (admin and REMOTE_ADMIN):
             return True
         self.send_json({"error": "Only available on the Pad itself"}, 403)
         return False
@@ -373,7 +439,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/wifi":
             return self.local_only() and self.send_json(wifi_state("rescan=1" in query))
         if path == "/api/term":
-            if self.headers.get("Upgrade", "").lower() != "websocket" or not self.local_only():
+            if self.headers.get("Upgrade", "").lower() != "websocket" or not self.local_only(admin=False):
                 return
             accept = base64.b64encode(hashlib.sha1((self.headers["Sec-WebSocket-Key"] + WS_GUID).encode()).digest()).decode()
             self.send_response(101)
@@ -452,7 +518,7 @@ class Handler(SimpleHTTPRequestHandler):
         if not action:
             return self.send_error(404)
         self.send_json({"ok": True})
-        subprocess.Popen(["sudo", "systemctl", action])
+        subprocess.Popen(["sudo", "systemctl", action] if shutil.which("systemctl") else [action])   # Nebula: plain reboot/poweroff
 
 
 if __name__ == "__main__":

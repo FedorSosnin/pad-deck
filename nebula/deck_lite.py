@@ -20,6 +20,7 @@ import queue
 import select
 import socket
 import struct
+import subprocess
 import threading
 import time
 
@@ -30,6 +31,8 @@ APP = os.path.join(ROOT, "..", "app")
 ASSETS = os.path.join(ROOT, "assets")
 W, H = 480, 272
 BAR = 34                      # status bar height
+RAIL = 50                     # ▲/▼ page buttons down the right edge
+M = 4                         # room around each keycap for its glow
 MENU_HIT = (W - 84, 0, W, BAR + 14)   # generous touch area for the ☰ button (resistive panels aren't precise)
 BACKLIGHT = "/sys/class/backlight/backlight_pwm0/brightness"   # 0–300
 FB = "/dev/fb0"
@@ -44,6 +47,16 @@ KEY = (43, 45, 50)
 def text_w(f, text):
     """Width of text in font f (PIL 7 on the Nebula has getsize; newer PIL only getbbox)."""
     return f.getbbox(text)[2] if hasattr(f, "getbbox") else f.getsize(text)[0]
+
+
+def text_top(f, text, middle):
+    """The y to draw text at so its visible glyphs are centred on `middle`."""
+    if hasattr(f, "getbbox"):
+        _, t, _, b = f.getbbox(text)
+    else:
+        t = f.getoffset(text)[1]
+        b = f.getsize(text)[1]
+    return int(middle - (t + b) / 2)
 
 
 def font(weight, size):
@@ -384,6 +397,14 @@ class Painter:
         self.big = font("SemiBold", 19)
         self.cache = {}
         self.icons = {}
+        try:                                                     # the Pad 7 keys' grain, tiled
+            tile = Image.open(os.path.join(APP, "noise.png")).convert("RGBA")
+            self.grain = Image.new("RGBA", (W, H))
+            for gx in range(0, W, tile.width):
+                for gy in range(0, H, tile.height):
+                    self.grain.paste(tile, (gx, gy))
+        except OSError:
+            self.grain = None
 
     def icon(self, name, size):
         key = (name, size)
@@ -403,31 +424,50 @@ class Painter:
         return self.icons[key]
 
     def key(self, b, w, h, state):
-        """One keycap (RGBA, w×(h+6) incl. edge) for button b in state {live, muted, hot, pressed}."""
+        """One keycap for button b in state {live, muted, hot, pressed}: RGBA, (w + 2M) × (h + 8 + 2M), drawn
+        M px in from the top-left so glows have room (paste it at slot x − M, y − M)."""
         ck = (json.dumps(b, sort_keys=True), w, h, tuple(sorted(state.items())))
         if ck in self.cache:
             return self.cache[ck]
         col = hexrgb(b.get("bg"))
         light = sum(c * k for c, k in zip(col, (.299, .587, .114))) > 150
         pressed = state.get("pressed")
-        out = Image.new("RGBA", (w, h + 8), (0, 0, 0, 0))
-        top = 4 if pressed else 0
+        out = Image.new("RGBA", (w + 2 * M, h + 8 + 2 * M), (0, 0, 0, 0))
+        top = M + (4 if pressed else 0)
         edge = 1 if pressed else 5
-        # shadow, edge, face, dished plate, top light
-        sh = Image.new("L", (w, h + 8), 0)
-        ImageDraw.Draw(sh).rectangle([3, top + 6, w - 3, top + h + edge], fill=170)
-        out.paste((0, 0, 0, 255), mask=sh.filter(ImageFilter.GaussianBlur(3)))
         r = max(6, min(w, h) // 9)
-        out.alpha_composite(rounded((w, h), r, mix(col, (0, 0, 0), .55) + (255,)), (0, top + edge))
-        out.alpha_composite(rounded((w, h), r, col + (255,)), (0, top))
-        out.alpha_composite(rounded((w - 10, h - 10), max(4, r - 3), mix(col, (255, 255, 255), .04) + (255,)), (5, top + 5))
-        d = ImageDraw.Draw(out)
-        d.line([(r, top + 1), (w - r, top + 1)], fill=mix(col, (255, 255, 255), .28) + (255,))
+        # soft shadow under the key
+        sh = Image.new("L", out.size, 0)
+        ImageDraw.Draw(sh).rectangle([M + 3, top + 6, M + w - 3, top + h + edge], fill=170)
+        out.paste((0, 0, 0, 255), mask=sh.filter(ImageFilter.GaussianBlur(3)))
+        # live: green glow around the key
         if state.get("live"):
-            out.alpha_composite(self.ring(w, h, r), (0, top))
-        # status LED
-        led = GREEN if state.get("live") else RED if state.get("hot") else (16, 17, 18)
-        d.ellipse([8, top + 8, 15, top + 15], fill=led + (255,))
+            glow = Image.new("L", out.size, 0)
+            glow.paste(rounded((w, h), r, (255, 255, 255, 255)).getchannel("A"), (M, top))
+            glow = glow.filter(ImageFilter.GaussianBlur(3)).point(lambda v: int(v * .55))
+            out.paste(GREEN + (255,), mask=glow)
+        # edge, face (with the same grain as the Pad 7 keys), dished plate, top light
+        out.alpha_composite(rounded((w, h), r, mix(col, (0, 0, 0), .55) + (255,)), (M, top + edge))
+        face = rounded((w, h), r, col + (255,))
+        if self.grain:
+            g = self.grain.crop((0, 0, w, h))
+            face.alpha_composite(Image.composite(g, Image.new("RGBA", (w, h), (0, 0, 0, 0)), face.getchannel("A")))
+        out.alpha_composite(face, (M, top))
+        out.alpha_composite(rounded((w - 10, h - 10), max(4, r - 3), mix(col, (255, 255, 255), .04) + (40,)), (M + 5, top + 5))
+        d = ImageDraw.Draw(out)
+        d.line([(M + r, top + 1), (M + w - r, top + 1)], fill=mix(col, (255, 255, 255), .28) + (255,))
+        if state.get("live"):
+            out.alpha_composite(self.ring(w, h, r), (M, top))
+        # status LED, glowing when lit
+        led = GREEN if state.get("live") else RED if state.get("hot") else None
+        lx, ly = M + 11, top + 11
+        if led:
+            halo = Image.new("L", out.size, 0)
+            ImageDraw.Draw(halo).ellipse([lx - 6, ly - 6, lx + 6, ly + 6], fill=200)
+            out.paste(led + (255,), mask=halo.filter(ImageFilter.GaussianBlur(3)))
+        d.ellipse([lx - 4, ly - 4, lx + 4, ly + 4], fill=(led or (16, 17, 18)) + (255,))
+        if led:
+            d.ellipse([lx - 2, ly - 3, lx + 1, ly - 1], fill=mix(led, (255, 255, 255), .6) + (255,))
         # icon and label
         text_col = (27, 28, 31) if light else (238, 240, 244)
         if state.get("muted"):
@@ -445,17 +485,17 @@ class Painter:
                 ic = Image.merge("RGBA", (*[ic.getchannel("A").point(lambda v: 0)] * 3, ic.getchannel("A")))
             elif state.get("muted"):
                 ic = Image.merge("RGBA", (*[c.point(lambda v: int(v * .7)) for c in ic.split()[:3]], ic.getchannel("A")))
-            out.alpha_composite(ic, ((w - ic.width) // 2, y + (ih - ic.height) // 2))
+            out.alpha_composite(ic, (M + (w - ic.width) // 2, y + (ih - ic.height) // 2))
             if state.get("muted"):                              # slash through the icon, cut out in the key colour
-                cx, cy, s = w // 2, y + ih // 2, ih * .42
+                cx, cy, s = M + w // 2, y + ih // 2, ih * .42
                 d.line([(cx - s, cy - s), (cx + s, cy + s)], fill=col + (255,), width=7)
                 d.line([(cx - s, cy - s), (cx + s, cy + s)], fill=text_col + (255,), width=3)
             y += ih + 6
         for line in lines:
             tw = text_w(self.label, line)
             if not light:
-                d.text(((w - tw) // 2, y + 1), line, font=self.label, fill=(0, 0, 0, 150))
-            d.text(((w - tw) // 2, y), line, font=self.label, fill=text_col + (255,))
+                d.text((M + (w - tw) // 2, y + 1), line, font=self.label, fill=(0, 0, 0, 150))
+            d.text((M + (w - tw) // 2, y), line, font=self.label, fill=text_col + (255,))
             y += 16
         if len(self.cache) > 200:
             self.cache.clear()
@@ -463,14 +503,33 @@ class Painter:
         return out
 
     def ring(self, w, h, r):
-        ring = rounded((w, h), r, GREEN + (150,))
+        ring = rounded((w, h), r, GREEN + (210,))
         inner = rounded((w - 4, h - 4), max(2, r - 2), (0, 0, 0, 255))
         hole = Image.new("L", (w, h), 0)
         hole.paste(inner.getchannel("A"), (2, 2))
-        a = ring.getchannel("A").point(lambda v: v)
+        a = ring.getchannel("A")
         a.paste(0, mask=hole)
         ring.putalpha(a)
         return ring
+
+    def chevron(self, w, h, up):
+        """A ▲/▼ rail keycap."""
+        out = Image.new("RGBA", (w + 2 * M, h + 8 + 2 * M), (0, 0, 0, 0))
+        sh = Image.new("L", out.size, 0)
+        ImageDraw.Draw(sh).rectangle([M + 3, M + 6, M + w - 3, M + h + 5], fill=170)
+        out.paste((0, 0, 0, 255), mask=sh.filter(ImageFilter.GaussianBlur(3)))
+        out.alpha_composite(rounded((w, h), 9, mix(KEY, (0, 0, 0), .55) + (255,)), (M, M + 5))
+        face = rounded((w, h), 9, KEY + (255,))
+        if self.grain:
+            g = self.grain.crop((0, 0, w, h))
+            face.alpha_composite(Image.composite(g, Image.new("RGBA", (w, h), (0, 0, 0, 0)), face.getchannel("A")))
+        out.alpha_composite(face, (M, M))
+        d = ImageDraw.Draw(out)
+        cx, cy, s = M + w // 2, M + h // 2, 8
+        pts = [(cx - s, cy + s // 2), (cx, cy - s // 2), (cx + s, cy + s // 2)] if up else \
+              [(cx - s, cy - s // 2), (cx, cy + s // 2), (cx + s, cy - s // 2)]
+        d.line(pts, fill=(214, 217, 223, 255), width=3)
+        return out
 
     def wrap(self, text, width):
         words, lines, cur = text.split(), [], ""
@@ -553,7 +612,7 @@ class Deck:
     def grid(self):
         cols, rows = int(self.layout.get("columns", 4)), int(self.layout.get("rows", 2))
         pad, gap = 8, 8
-        kw = (W - 2 * pad - (cols - 1) * gap) // cols
+        kw = (W - RAIL - pad - 2 - (cols - 1) * gap) // cols
         kh = (H - BAR - 2 * pad - 6 - (rows - 1) * gap) // rows
         return cols, rows, pad, gap, kw, kh
 
@@ -587,26 +646,56 @@ class Deck:
         st = self.state["status"]
         dot = {"online": GREEN, "connecting": AMBER, "offline": RED, "unset": AMBER}.get(st, AMBER)
         text = {"online": "OBS", "connecting": "Connecting", "offline": "OBS offline", "unset": "Set up OBS"}.get(st, "OBS")
-        x = 10
+        f, cy = self.paint.small, BAR // 2
+        x = 12
         for label, on, col in [(text, True, dot), ("LIVE", self.state["stream"], RED), ("REC", self.state["rec"], RED)]:
-            d.ellipse([x, 10, x + 6, 16], fill=col if on else (55, 57, 62))
-            d.text((x + 11, 5), label, font=self.paint.small, fill=(235, 236, 240) if on else (120, 124, 132))
-            x += 22 + text_w(self.paint.small, label)
+            d.ellipse([x, cy - 3, x + 6, cy + 3], fill=col if on else (55, 57, 62))
+            d.text((x + 11, text_top(f, label, cy)), label, font=f, fill=(235, 236, 240) if on else (120, 124, 132))
+            x += 22 + text_w(f, label)
         n = len(self.layout.get("pages", [])) or 1
         if self.toast_msg:                                       # a short message in the middle of the bar
-            tw = text_w(self.paint.small, self.toast_msg)
-            d.text(((W - tw) // 2, 10), self.toast_msg, font=self.paint.small, fill=(255, 210, 120))
+            tw = text_w(f, self.toast_msg)
+            d.text(((W - tw) // 2, text_top(f, self.toast_msg, cy)), self.toast_msg, font=f, fill=(255, 210, 120))
         elif n > 1:                                              # page dots, centred
             for p in range(n):
                 cx = W // 2 - (n - 1) * 7 + p * 14
-                d.ellipse([cx - 4, BAR // 2 - 4, cx + 4, BAR // 2 + 4], fill=(250, 250, 252) if p == self.page else (75, 78, 84))
-        # ☰ menu button: a small keycap at the right end of the bar
+                d.ellipse([cx - 4, cy - 4, cx + 4, cy + 4], fill=(250, 250, 252) if p == self.page else (75, 78, 84))
+        # ☰ menu button (✕ while the menu is open): a small keycap at the right end of the bar
         bx0, by0, bx1, by1 = W - 60, 4, W - 8, BAR - 4
         cap = rounded((bx1 - bx0, by1 - by0), 7, (52, 55, 61, 255))
         img.paste(cap, (bx0, by0), cap)
-        for k in range(3):
-            yy = by0 + 7 + k * 6
-            d.line([(bx0 + 16, yy), (bx1 - 16, yy)], fill=(225, 228, 234), width=2)
+        mx, my = (bx0 + bx1) // 2, (by0 + by1) // 2
+        if self.info:
+            d.line([(mx - 7, my - 7), (mx + 7, my + 7)], fill=(225, 228, 234), width=3)
+            d.line([(mx - 7, my + 7), (mx + 7, my - 7)], fill=(225, 228, 234), width=3)
+        else:
+            for k in (-6, 0, 6):
+                d.line([(mx - 10, my + k), (mx + 10, my + k)], fill=(225, 228, 234), width=2)
+
+    # ▲/▼ page buttons, the height of the first and last rows (hidden when there's no page that way)
+    def rail_boxes(self):
+        cols, rows, pad, gap, kw, kh = self.grid()
+        x0 = W - RAIL + 4
+        first = BAR + pad
+        last = BAR + pad + (rows - 1) * (kh + gap)
+        n = len(self.layout.get("pages", [])) or 1
+        boxes = {}
+        if self.page > 0:
+            boxes[-1] = (x0, first, W - 8 - x0, kh)
+        if self.page < n - 1:
+            boxes[1] = (x0, last, W - 8 - x0, kh)
+        return boxes
+
+    def draw_rail(self, img):
+        for direction, (x, y, w, h) in self.rail_boxes().items():
+            cap = self.paint.chevron(w, h, direction < 0)
+            img.paste(cap, (x - M, y - M), cap)
+
+    def rail_at(self, x, y):
+        for direction, (bx, by, w, h) in self.rail_boxes().items():
+            if bx - 6 <= x <= bx + w + 8 and by - 6 <= y <= by + h + 10:
+                return direction
+        return None
 
     def render(self):
         img = self.paint.bg.copy()
@@ -620,7 +709,8 @@ class Deck:
                     continue
                 x, y, kw, kh = self.slot_box(i)
                 k = self.paint.key(b, kw, kh, self.key_state(b, i))
-                img.paste(k, (x, y), k)
+                img.paste(k, (x - M, y - M), k)
+            self.draw_rail(img)
             if not any(bs):
                 d = ImageDraw.Draw(img)
                 msg = "Empty page · edit at %s" % self.editor_url()
@@ -682,12 +772,12 @@ class Deck:
             return
         self.drawn[i] = self.sig(i)
         x, y, kw, kh = self.slot_box(i)
-        box = (x, y, x + kw, min(H, y + kh + 8))
+        box = (max(0, x - M), y - M, min(W, x + kw + M), min(H, y + kh + 8 + M))
         patch = self.paint.bg.crop(box)
         b = self.buttons()[i]
         if b:
             k = self.paint.key(b, kw, kh, self.key_state(b, i))
-            patch.paste(k, (0, 0), k)
+            patch.paste(k, (x - M - box[0], y - M - box[1]), k)
         self.frame.paste(patch, box[:2])
         self.screen.show(self.frame, box)
 
@@ -699,32 +789,51 @@ class Deck:
         return "http://%s:%d" % (local_ip(), EDITOR_PORT)
 
     def draw_info(self, img):
-        """The ☰ menu: where to edit, OBS status, and big buttons for sound, brightness and close."""
+        """The ☰ menu: where to edit, then rows with an icon on the left and controls on the right."""
         d = ImageDraw.Draw(img)
         cx0, cy0, cx1, cy1 = 12, BAR + 6, W - 12, H - 8
         card = rounded((cx1 - cx0, cy1 - cy0), 14, (20, 21, 24, 245))
         img.paste(card, (cx0, cy0), card)
-        host = self.settings.get("obsHost") or "not set"
-        d.text((cx0 + 18, cy0 + 12), "Edit keys, pages and OBS from a browser:", font=self.paint.label, fill=(150, 154, 162))
-        d.text((cx0 + 18, cy0 + 34), self.editor_url(), font=self.paint.big, fill=GREEN)
-        d.text((cx0 + 18, cy0 + 68), "OBS: %s (%s)" % (host, self.state["status"]), font=self.paint.label, fill=(200, 204, 212))
-        level = int(self.settings.get("brightness", 180))
-        y0, y1 = cy1 - 64, cy1 - 14
-        buttons = [("Sound: %s" % ("On" if self.settings.get("sound", True) else "Off"), cx0 + 14, cx0 + 140, "sound"),
-                   ("−", cx0 + 150, cx0 + 202, "dim"),
-                   ("+", cx0 + 290, cx0 + 342, "bright"),
-                   ("Close", cx0 + 352, cx1 - 14, "close")]
+        f, big = self.paint.label, self.paint.big
+        d.text((cx0 + 16, cy0 + 10), "Edit keys and OBS from a browser:", font=f, fill=(150, 154, 162))
+        d.text((cx0 + 16, cy0 + 28), self.editor_url(), font=big, fill=GREEN)
         self.menu_hits = []
-        for text, x0, x1, action in buttons:
-            cap = rounded((x1 - x0, y1 - y0), 10, (52, 55, 61, 255))
-            img.paste(cap, (x0, y0), cap)
-            f = self.paint.big
-            tw = text_w(f, text)
-            d.text((x0 + (x1 - x0 - tw) // 2, y0 + 12), text, font=f, fill=(238, 240, 244))
-            self.menu_hits.append((x0 - 4, y0 - 10, x1 + 4, y1 + 10, action))
-        label = "Light %d%%" % round(level / 3)
-        tw = text_w(self.paint.label, label)
-        d.text((cx0 + 246 - tw // 2, y0 + 15), label, font=self.paint.label, fill=(200, 204, 212))
+        rows = [("deck-speaker", "Sound"), ("deck-light", "Brightness"), ("deck-wifi", "Wi-Fi: %s" % (self.wifi_ssid() or "not connected"))]
+        y = cy0 + 64
+        for icon, text in rows:
+            d.line([(cx0 + 14, y), (cx1 - 14, y)], fill=(40, 42, 47))
+            mid = y + 24
+            ic = self.paint.icon(icon + ".svg", 24)
+            if ic:
+                img.paste(ic, (cx0 + 18, mid - 12), ic)
+            d.text((cx0 + 54, text_top(big, text, mid)), text, font=big, fill=(238, 240, 244))
+            if icon == "deck-speaker":                           # on/off switch
+                on = self.settings.get("sound", True)
+                sx0, sx1 = cx1 - 76, cx1 - 18
+                pill = rounded((sx1 - sx0, 30), 15, (GREEN if on else (60, 63, 69)) + (255,))
+                img.paste(pill, (sx0, mid - 15), pill)
+                kx = sx1 - 28 if on else sx0 + 2
+                d.ellipse([kx, mid - 13, kx + 26, mid + 13], fill=(245, 246, 248))
+                self.menu_hits.append((cx0, y, cx1, y + 48, "sound"))
+            elif icon == "deck-light":                           # − 60% +
+                pct = "%d%%" % round(int(self.settings.get("brightness", 180)) / 3)
+                for label, bx0, action in (("−", cx1 - 160, "dim"), ("+", cx1 - 62, "bright")):
+                    cap = rounded((44, 34), 9, (52, 55, 61, 255))
+                    img.paste(cap, (bx0, mid - 17), cap)
+                    d.text((bx0 + (44 - text_w(big, label)) // 2, text_top(big, label, mid)), label, font=big, fill=(238, 240, 244))
+                    self.menu_hits.append((bx0 - 10, y, bx0 + 54, y + 48, action))
+                d.text((cx1 - 89 - text_w(f, pct) // 2, text_top(f, pct, mid)), pct, font=f, fill=(200, 204, 212))
+            else:
+                hint = "change in the editor"
+                d.text((cx1 - 18 - text_w(f, hint), text_top(f, hint, mid)), hint, font=f, fill=(120, 124, 132))
+            y += 48
+
+    def wifi_ssid(self):
+        try:
+            out = subprocess.run(["wpa_cli", "-i", "wlan0", "status"], capture_output=True, text=True, timeout=3).stdout
+            return dict(l.split("=", 1) for l in out.splitlines() if "=" in l).get("ssid")
+        except (OSError, subprocess.SubprocessError):
+            return None
 
     def menu_action(self, action):
         if action == "sound":
@@ -733,8 +842,6 @@ class Deck:
             level = int(self.settings.get("brightness", 180)) + (30 if action == "bright" else -30)
             self.save_setting("brightness", max(30, min(300, level)))
             self.apply_brightness()
-        elif action == "close":
-            self.info = False
         self.render()
 
     def save_setting(self, key, value):
@@ -825,6 +932,11 @@ class Deck:
                 start = (x, y, time.time())
                 trail = [(x, y)]
                 if y < BAR or self.info or self.in_menu_button(x, y):
+                    if self.info or self.in_menu_button(x, y):
+                        self.beep()
+                    continue
+                if self.rail_at(x, y):
+                    self.beep()
                     continue
                 i = self.slot_at(x, y)
                 if i is not None and self.buttons()[i]:
@@ -839,17 +951,18 @@ class Deck:
                 x, y = trail[-3] if len(trail) > 3 else (sx, sy)
                 was, self.pressed = self.pressed, None
                 dy, dx = y - sy, x - sx
-                if self.info:                                    # a button on the menu card, or outside it
+                if self.in_menu_button(sx, sy) and abs(dx) < 40 and abs(dy) < 40:   # ☰ opens, ✕ closes
+                    self.info = not self.info
+                    self.render()
+                elif self.info:                                  # a control on the menu card, or outside it
                     hit = next((a for x0, y0, x1, y1, a in self.menu_hits if x0 <= sx <= x1 and y0 <= sy <= y1), None)
                     if hit:
-                        self.beep()
                         self.menu_action(hit)
                     elif not (12 <= sx <= W - 12 and BAR + 6 <= sy <= H - 8):
                         self.info = False
                         self.render()
-                elif self.in_menu_button(sx, sy) and abs(dx) < 40 and abs(dy) < 40:
-                    self.beep()
-                    self.info = True
+                elif self.rail_at(sx, sy):                       # ▲/▼ page buttons
+                    self.page += self.rail_at(sx, sy)
                     self.render()
                 elif abs(dy) > 40 and abs(dy) > abs(dx):          # swipe: up = next page, down = previous
                     n = len(self.layout.get("pages", [])) or 1
