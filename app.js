@@ -155,6 +155,21 @@ function renderRail() {
   $("pgDown").disabled = page === layout.pages.length - 1 && isBlank(layout.pages[page]);
 }
 
+// A small yes/no dialog (the kiosk has no native confirm). Like the editor, it ignores touches for a
+// moment so the tap that opened it can't land on its buttons.
+function confirmDialog(message, okLabel) {
+  $("confirmText").textContent = message;
+  $("confirmOk").textContent = okLabel;
+  $("confirm").classList.add("open", "arming");
+  setTimeout(() => $("confirm").classList.remove("arming"), 450);
+  return new Promise((resolve) => {
+    const done = (ok) => { $("confirm").classList.remove("open"); resolve(ok); };
+    $("confirmOk").onclick = () => done(true);
+    $("confirmCancel").onclick = () => done(false);
+    $("confirm").onclick = (e) => { if (e.target === $("confirm")) done(false); }; // tap outside = cancel
+  });
+}
+
 function toast(msg) {
   $("toast").textContent = msg;
   $("toast").classList.add("show");
@@ -286,7 +301,13 @@ function endGesture(e, completed) {
   if (!completed || document.elementFromPoint(e.clientX, e.clientY)?.closest(".slot") !== g.slot) return;
   const b = g.btn;
   if (!editing) { if (b) press(b); return; }
-  if (g.onDelete) { buttons()[g.i] = null; render(); return; }
+  if (g.onDelete) {
+    const list = buttons(), victim = list[g.i];
+    confirmDialog(`Delete “${victim.label || "this key"}”?`, "Delete").then((ok) => {
+      if (ok && list[g.i] === victim) { list[g.i] = null; render(); }
+    });
+    return;
+  }
   openEditor(g.i);
 }
 

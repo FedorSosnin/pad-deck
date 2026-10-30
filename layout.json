@@ -14,13 +14,13 @@
         null,
         null,
         {
-          "label": "Stream Intro",
+          "label": "Play Stream Intro",
           "icon": "deck-clapperboard.svg",
           "scene": "Starting Soon",
           "bg": "#1d5e36"
         },
         {
-          "label": "Stream Outro",
+          "label": "Play Stream Outro",
           "icon": "deck-clapperboard.svg",
           "scene": "Thanks for watching!",
           "bg": "#7a1430"
@@ -29,29 +29,29 @@
           "label": "Main Cam",
           "icon": "deck-screen-person.svg",
           "scene": "Main Cam",
-          "bg": "#56308f"
+          "bg": "#a0a0a0"
         },
         {
           "label": "Main PIP",
           "icon": "deck-screen-pip.svg",
           "scene": "Main - Close",
-          "bg": "#56308f"
+          "bg": "#a0a0a0"
         },
         {
-          "label": "Close PIP",
-          "icon": "deck-screen-pip-person.svg",
+          "label": "Close - Main",
+          "bg": "#a0a0a0",
           "scene": "Close - Main",
-          "bg": "#56308f"
+          "icon": "deck-screen-pip-person.svg"
         },
         {
           "label": "Browser View",
           "icon": "deck-screen-website.svg",
           "scene": "Browser View",
-          "bg": "#56308f"
+          "bg": "#a0a0a0"
         },
         {
           "label": "Remote Cam",
-          "bg": "#56308f",
+          "bg": "#a0a0a0",
           "scene": "Remote Cam",
           "icon": "deck-phone-camera.svg"
         },
@@ -81,30 +81,6 @@
           "icon": "deck-screen-two-people.svg",
           "scene": "ONLY Close + Main"
         }
-      ]
-    },
-    {
-      "buttons": [
-        {
-          "label": "Mic",
-          "icon": "deck-mic.svg",
-          "mute": "Mic/Aux",
-          "bg": "#8a0030"
-        },
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null,
-        null
       ]
     }
   ]
