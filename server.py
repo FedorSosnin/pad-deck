@@ -16,6 +16,9 @@ POST /api/icons               upload an icon (raw body, X-Filename header)
 GET  /api/settings            press feedback settings (settings.json)
 PUT  /api/settings            save them
 POST /api/buzz                pulse the Pad 7 vibration motor
+POST /api/run                 {"type": ..., ...} run a key's non-OBS action: a web request, or (through the
+                              Pad Deck Helper on your computer) open a website/app, run a Shortcut, press keys
+GET  /api/helper?what=ping|apps|shortcuts   ask the Pad Deck Helper (connection test, lists for the editor)
 POST /api/leds                set the Pad 7's top RGB LEDs, {"colors": ["#rrggbb", ...]}  (Pad only)
 
 Pad-only (refused unless the request comes from the Pad itself):
@@ -42,7 +45,9 @@ import termios
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import unquote_plus
+from urllib.parse import unquote_plus, urlsplit, urlunsplit
+import urllib.error
+import urllib.request
 import shutil
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -53,7 +58,8 @@ ICONS = os.path.join(ROOT, "icons")
 ICON_TYPES = (".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif")
 DEFAULT_SETTINGS = {"sound": True, "vibrate": True, "volume": 0.6, "leds": True,
                     "obsHost": "", "obsPort": 4455, "obsPassword": "",  # OBS: Menu → OBS
-                    "brightness": 180}  # screen backlight (Pad Deck Lite on the Nebula)
+                    "brightness": 180,  # screen backlight (Pad Deck Lite on the Nebula)
+                    "helperHost": "", "helperPort": 8098, "helperCode": ""}  # Pad Deck Helper: Menu → Helper
 VIBRATION = "/sys/class/leds/pad7_vibration/brightness"
 BTT_CFG = "/boot/system.cfg"   # BTT's boot script reconnects to the Wi-Fi named here
 LOCAL = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
@@ -104,6 +110,140 @@ def set_leds(colors):
             os.write(fd, struct.pack(f"<{len(values)}I", *values))
         finally:
             os.close(fd)
+
+
+# ---------- Actions beyond OBS: web requests, and the Pad Deck Helper on your computer ----------
+
+HELPER_TYPES = {"url", "app", "shortcut", "hotkey"}   # these run on the computer, via helper/pad-deck-helper.py
+
+
+def load_settings():
+    try:
+        with open(SETTINGS) as f:
+            return {**DEFAULT_SETTINGS, **json.load(f)}
+    except (OSError, ValueError):
+        return dict(DEFAULT_SETTINGS)
+
+
+def mdns_a_record(data):
+    """First IPv4 address in the answer section of a DNS/mDNS response, or None."""
+    def skip_name(i):
+        while True:
+            n = data[i]
+            if n == 0:
+                return i + 1
+            if n & 0xC0 == 0xC0:                                 # compressed: pointer ends the name
+                return i + 2
+            i += n + 1
+    try:
+        qd, an = struct.unpack(">HH", data[4:8])
+        i = 12
+        for _ in range(qd):
+            i = skip_name(i) + 4
+        for _ in range(an):
+            i = skip_name(i)
+            typ, _cls, _ttl, rdlen = struct.unpack(">HHIH", data[i:i + 10])
+            i += 10
+            if typ == 1 and rdlen == 4:
+                return socket.inet_ntoa(data[i:i + 4])
+            i += rdlen
+    except (IndexError, struct.error):
+        pass
+    return None
+
+
+def resolve(host):
+    """Hostname → IP, with a one-shot mDNS query for name.local (the Nebula has no mDNS resolver)."""
+    try:
+        return socket.gethostbyname(host)
+    except OSError:
+        if not host.endswith(".local"):
+            raise
+    q = b"\0\0\0\0\0\1\0\0\0\0\0\0" + b"".join(bytes([len(p)]) + p.encode() for p in host.split(".")) + b"\0\0\1\0\1"
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(2)
+    s.sendto(q, ("224.0.0.251", 5353))
+    end = time.time() + 2
+    while time.time() < end:
+        try:
+            ip = mdns_a_record(s.recvfrom(2048)[0])
+        except socket.timeout:
+            break
+        if ip:
+            return ip
+    raise OSError("can't find " + host)
+
+
+def url_with_ip(url):
+    """The same URL with a .local host resolved (so it also works on the Nebula)."""
+    u = urlsplit(url)
+    if u.hostname and u.hostname.endswith(".local"):
+        return urlunsplit(u._replace(netloc=resolve(u.hostname) + (":%d" % u.port if u.port else "")))
+    return url
+
+
+def helper_call(path, payload=None):
+    s = load_settings()
+    host = s["helperHost"] or s["obsHost"]
+    if not host:
+        raise ValueError("Set up the Pad Deck Helper first (Menu → Helper)")
+    try:
+        req = urllib.request.Request(url_with_ip("http://%s:%d%s" % (host, int(s["helperPort"]), path)),
+                                     data=None if payload is None else json.dumps(payload).encode(),
+                                     headers={"Content-Type": "application/json", "X-Pad-Deck-Code": s["helperCode"]})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise ValueError("The Helper's pairing code doesn't match (Menu → Helper)")
+        raise ValueError(json.loads(e.read() or b"{}").get("error") or "Helper error %d" % e.code)
+    except (urllib.error.URLError, OSError):
+        raise ValueError("Can't reach the Pad Deck Helper on %s. Is it running?" % host)
+
+
+# Smart plugs that take plain local web requests (no cloud account): the path for each action.
+PLUG_URLS = {
+    "shelly": {"toggle": "/relay/0?turn=toggle", "on": "/relay/0?turn=on", "off": "/relay/0?turn=off"},
+    "shelly2": {"toggle": "/rpc/Switch.Toggle?id=0", "on": "/rpc/Switch.Set?id=0&on=true", "off": "/rpc/Switch.Set?id=0&on=false"},
+    "tasmota": {"toggle": "/cm?cmnd=Power%20Toggle", "on": "/cm?cmnd=Power%20On", "off": "/cm?cmnd=Power%20Off"},
+}
+
+
+def http_send(url, method=None, body=None):
+    headers = {"Content-Type": "application/json"} if body and body.strip()[:1] in "{[" else {}
+    try:
+        req = urllib.request.Request(url_with_ip(url), data=body.encode() if body else None, headers=headers,
+                                     method=(method or ("POST" if body else "GET")).upper())
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return "Sent (%d)" % r.status
+    except urllib.error.HTTPError as e:
+        raise ValueError("The device answered %d %s" % (e.code, e.reason))
+    except (urllib.error.URLError, OSError) as e:
+        raise ValueError("Couldn't reach it: %s" % (getattr(e, "reason", None) or e))
+
+
+def run_action(a):
+    """Run one key's non-OBS action. Returns a short message for the screen."""
+    t = a.get("type")
+    if t == "http":                                              # Home Assistant, webhooks, other devices…
+        url = str(a.get("url", "")).strip()
+        if not url.startswith(("http://", "https://")):
+            raise ValueError("The web address should start with http:// or https://")
+        return http_send(url, a.get("method"), a.get("body") or None)
+    if t == "plug":                                              # a smart plug on the local network
+        ip, do = str(a.get("ip", "")).strip(), a.get("do", "toggle")
+        if not re.fullmatch(r"[A-Za-z0-9.\-:]+", ip):
+            raise ValueError("Enter the plug's IP address (from its app or your router)")
+        if do not in ("toggle", "on", "off"):
+            raise ValueError("Unknown plug action %r" % do)
+        url = PLUG_URLS.get(a.get("brand"))
+        if not url:
+            raise ValueError("Unknown plug type %r" % a.get("brand"))
+        http_send("http://" + ip + url[do])
+        return "Plug: %s" % do
+    if t in HELPER_TYPES:
+        return helper_call("/run", a).get("message", "Done")
+    raise ValueError("Unknown action %r" % t)
 
 
 # ---------- Saved layouts ----------
@@ -435,6 +575,16 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/layout":
             with open(LAYOUT) as f:
                 return self.send_json(json.load(f))
+        if path == "/api/helper":
+            if not self.local_only():
+                return
+            what = dict(re.findall(r"(\w+)=([^&]*)", query)).get("what", "ping")
+            if what not in ("ping", "apps", "shortcuts"):
+                return self.send_error(404)
+            try:
+                return self.send_json(helper_call("/" + what))
+            except ValueError as e:
+                return self.send_json({"error": str(e)}, 502)
         if path == "/api/device":
             return self.send_json({"device": DEVICE})
         if path == "/api/layouts":
@@ -494,6 +644,13 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if self.path == "/api/run":
+            if not self.local_only():
+                return
+            try:
+                return self.send_json({"ok": True, "message": run_action(self.json_body() or {})})
+            except ValueError as e:
+                return self.send_json({"error": str(e)}, 400)
         if self.path in ("/api/layouts", "/api/layouts/load", "/api/layouts/new"):
             name = str((self.json_body() or {}).get("name", "")).strip()
             try:

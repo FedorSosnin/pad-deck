@@ -189,6 +189,11 @@
     font: 500 17px var(--font); letter-spacing: .02em; text-transform: none; box-shadow: inset 0 2px 4px rgba(0,0,0,.7), 0 1px 0 rgba(255,255,255,.06); outline: none; }
   .input:focus { box-shadow: inset 0 2px 4px rgba(0,0,0,.7), 0 0 0 2px var(--accent); }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  #actFields { display: grid; gap: 14px; }
+  #actFields:empty { display: none; }
+  #actFields .hint { text-transform: none; letter-spacing: 0; font: 500 13px/1.35 var(--font); color: var(--muted); }
+  #actFields .hint.err { color: #ff8a95; }
+  #actFields .test-row { display: flex; align-items: center; gap: 12px; }
   .seg { display: inline-flex; padding: 3px; gap: 3px; background: #0c0d0f; border-radius: 10px; box-shadow: inset 0 2px 4px rgba(0,0,0,.7); }
   .seg button { border: 0; background: transparent; border-radius: 8px; padding: 8px 14px; font: 600 14px var(--font); color: var(--muted); letter-spacing: .04em; }
   .seg button.on { background: #2f3238; color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.15), 0 2px 4px rgba(0,0,0,.5); }
@@ -320,14 +325,10 @@
   <div class="panel">
     <div id="previewWrap"><div id="preview"></div></div>
     <div id="fields">
-      <label class="field">Does
-        <div class="seg" id="kind">
-          <button data-kind="scene">Switch scene</button>
-          <button data-kind="mute">Toggle mute</button>
-        </div>
-      </label>
+      <label class="field">Does <select id="actSel"></select></label>
       <label class="field" id="sceneField">Scene <select id="sceneSel"></select></label>
       <label class="field" id="muteField">Audio input <select id="muteSel"></select></label>
+      <div id="actFields"></div>
       <label class="field">Label <input id="labelIn" class="input" type="text" autocomplete="off" data-osk></label>
       <label class="field">Color <div class="row" id="swatches"></div></label>
       <label class="field">Icon <div id="icons"></div></label>

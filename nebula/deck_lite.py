@@ -24,6 +24,8 @@ import struct
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -239,6 +241,7 @@ class OBS(threading.Thread):
         self.lock = threading.Lock()
         self.next_id = 1
         self.pending = {}                                       # requestId → what the response is for
+        self.items = {}                                         # (scene, sceneItemId) → source name, for events
         self.wake = threading.Event()
 
     def configure(self, host, port, password):
@@ -346,7 +349,7 @@ class OBS(threading.Thread):
             m = self.recv_message()
             op, d = m.get("op"), m.get("d", {})
             if op == 0:                                          # Hello → Identify (Scenes, Inputs, Outputs events)
-                ident = {"rpcVersion": 1, "eventSubscriptions": 4 | 8 | 64}
+                ident = {"rpcVersion": 1, "eventSubscriptions": 4 | 8 | 64 | 128}   # + Scene Items
                 auth = d.get("authentication")
                 if auth:
                     secret = base64.b64encode(hashlib.sha256((password + auth["salt"]).encode()).digest()).decode()
@@ -359,6 +362,7 @@ class OBS(threading.Thread):
                 pending[self.request("GetCurrentProgramScene")] = "scene"
                 pending[self.request("GetStreamStatus")] = "stream"
                 pending[self.request("GetRecordStatus")] = "rec"
+                self.items = {}
                 self.out.put(("obs", "need-mutes", None))
             elif op == 7:                                        # request response
                 kind = pending.pop(d.get("requestId"), None)
@@ -369,6 +373,14 @@ class OBS(threading.Thread):
                     self.out.put(("obs", kind, r.get("outputActive", False)))
                 elif kind and kind.startswith("mute:"):
                     self.out.put(("obs", "mute", (kind[5:], r.get("inputMuted"))))
+                elif isinstance(kind, tuple) and "sceneItemId" in r:   # ("item", scene, source) → its id
+                    _, scene, source = kind
+                    self.items[(scene, r["sceneItemId"])] = source
+                    self.out.put(("obs", "item", (scene, source, r["sceneItemId"])))
+                    pending[self.request("GetSceneItemEnabled", {"sceneName": scene, "sceneItemId": r["sceneItemId"]})] = \
+                        ("shown", scene, source)
+                elif isinstance(kind, tuple) and "sceneItemEnabled" in r:
+                    self.out.put(("obs", "shown", (kind[1], kind[2], r["sceneItemEnabled"])))
                 elif not d.get("requestStatus", {}).get("result", True):
                     print("OBS request failed:", d.get("requestStatus"), flush=True)
             elif op == 5:                                        # events
@@ -381,6 +393,16 @@ class OBS(threading.Thread):
                     self.out.put(("obs", "stream", e.get("outputActive")))
                 elif t == "RecordStateChanged":
                     self.out.put(("obs", "rec", e.get("outputActive")))
+                elif t == "SceneItemEnableStateChanged" and (e.get("sceneName"), e.get("sceneItemId")) in self.items:
+                    source = self.items[(e["sceneName"], e["sceneItemId"])]
+                    self.out.put(("obs", "shown", (e["sceneName"], source, e.get("sceneItemEnabled"))))
+
+    def ask_source(self, scene, source):
+        """Look up a source's id in a scene, then whether it's showing (reported as "item" and "shown")."""
+        try:
+            self.pending[self.request("GetSceneItemId", {"sceneName": scene, "sourceName": source})] = ("item", scene, source)
+        except (OSError, AttributeError):
+            pass
 
     def ask_mute(self, name):
         try:
@@ -613,7 +635,8 @@ class Deck:
         self.layout, self.settings = {}, {}
         self.mtimes = {}
         self.page = 0
-        self.state = {"status": "connecting", "scene": None, "muted": {}, "stream": False, "rec": False}
+        self.state = {"status": "connecting", "scene": None, "muted": {}, "stream": False, "rec": False,
+                      "shown": {}, "items": {}}                 # (scene, source) → showing? / sceneItemId
         self.obs = OBS(self.events)
         self.touch = None
         self.pressed = None
@@ -658,8 +681,13 @@ class Deck:
         return self.layout["pages"][self.page]["buttons"] if self.layout.get("pages") else []
 
     def ask_mutes(self):
-        for name in {b["mute"] for p in self.layout.get("pages", []) for b in p["buttons"] if b and b.get("mute")}:
+        """Ask OBS for everything keys show: mute states and whether sources are showing."""
+        keys = [b for p in self.layout.get("pages", []) for b in p["buttons"] if b]
+        for name in {b["mute"] for b in keys if b.get("mute")}:
             self.obs.ask_mute(name)
+        for scene, source in {(a.get("scene"), a.get("source")) for a in (b.get("action") or {} for b in keys)
+                              if a.get("type") == "source"}:
+            self.obs.ask_source(scene, source)
 
     # -- geometry
     def grid(self):
@@ -690,6 +718,11 @@ class Deck:
             m = self.state["muted"].get(b["mute"])
             st["muted"] = m
             st["hot"] = m is False
+        a = b.get("action") or {}
+        if a.get("type") in ("stream", "record"):
+            st["hot"] = self.state["stream" if a["type"] == "stream" else "rec"]
+        elif a.get("type") == "source":
+            st["live"] = bool(self.state["shown"].get((a.get("scene"), a.get("source"))))
         return st
 
     # -- drawing
@@ -803,8 +836,10 @@ class Deck:
             _, _, kw, kh = self.slot_box(i)
             base = self.key_state(b, i)
             looks = [{"pressed": True}]
-            if b.get("scene"):
+            if b.get("scene") or (b.get("action") or {}).get("type") == "source":
                 looks.append({"live": not base.get("live")})
+            if (b.get("action") or {}).get("type") in ("stream", "record"):
+                looks.append({"hot": not base.get("hot")})
             if b.get("mute"):
                 looks.append({"muted": not base.get("muted"), "hot": bool(base.get("muted"))})
             for extra in looks:
@@ -950,6 +985,40 @@ class Deck:
             self.obs.request("SetCurrentProgramScene", {"sceneName": b["scene"]})
         if b.get("mute"):
             self.obs.request("ToggleInputMute", {"inputName": b["mute"]})
+        a = b.get("action") or {}
+        t = a.get("type")
+        if t == "stream":
+            self.obs.request("ToggleStream")
+        elif t == "record":
+            self.obs.request("ToggleRecord")
+        elif t == "source":
+            k = (a.get("scene"), a.get("source"))
+            if k in self.state["items"]:
+                on = not self.state["shown"].get(k, False)
+                self.state["shown"][k] = on                     # optimistic; the OBS event confirms
+                self.obs.request("SetSceneItemEnabled", {"sceneName": k[0], "sceneItemId": self.state["items"][k],
+                                                         "sceneItemEnabled": on})
+            else:
+                self.obs.ask_source(*k)
+                self.toast("Source not found in OBS")
+        elif t:
+            threading.Thread(target=self.run_action, args=(a,), daemon=True).start()
+
+    def run_action(self, a):
+        """Websites, apps, smart plugs…: run by the Pad Deck server next door; its answer shows in the bar."""
+        try:
+            req = urllib.request.Request("http://127.0.0.1:8099/api/run", data=json.dumps(a).encode(),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=12) as r:
+                msg = json.load(r).get("message", "Done")
+        except urllib.error.HTTPError as e:
+            try:
+                msg = json.load(e).get("error", str(e))
+            except ValueError:
+                msg = str(e)
+        except (OSError, ValueError) as e:
+            msg = "Couldn't run it: %s" % e
+        self.events.put(("toast", msg))
 
     def run(self):
         os.system("killall boot_display jpeg_display_shell 2>/dev/null")
@@ -993,11 +1062,19 @@ class Deck:
                     self.state["muted"][value[0]] = value[1]
                 elif what in ("stream", "rec"):
                     self.state[what] = bool(value)
+                elif what == "item":
+                    self.state["items"][(value[0], value[1])] = value[2]
+                    continue
+                elif what == "shown":
+                    self.state["shown"][(value[0], value[1])] = bool(value[2])
                 elif what == "need-mutes":
                     self.ask_mutes()
                     continue
                 if self.events.empty():
                     self.refresh()
+            elif kind == "toast":
+                msg = ev[1]
+                self.toast(msg if len(msg) <= 38 else msg[:37] + "…", 2.5)
             elif kind == "move" and start:
                 trail.append(ev[1:])
             elif kind == "down":

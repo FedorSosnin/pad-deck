@@ -9,8 +9,10 @@ It also runs on the smaller **Creality Nebula Pad**: see [Pad Deck Lite](#creali
 
 ## Features
 
-- **One-tap OBS control:** keys switch scenes or toggle an audio input's mute. The live scene's key lights
-  up green, and the bar shows OBS, Live and Rec status.
+- **One-tap OBS control:** keys switch scenes, mute audio, start or stop the stream or recording, and show or
+  hide sources. Keys light up to match OBS, and the bar shows OBS, Live and Rec status.
+- **More than OBS:** keys can open a website or an app, run a Shortcut or press a key combination on your
+  computer (with the [Pad Deck Helper](#pad-deck-helper)), switch a smart plug, or send any web request.
 - **Physical keycaps:** a dished face, a weighted edge, a satisfying press, a plastic "click" through the
   Pad's speaker on press and release, and an optional buzz from the vibration motor.
 - **Pages:** swipe up and down (the page follows your finger), or use the ▲/▼ rail. Swiping past the last
@@ -70,6 +72,22 @@ the OBS screen opens on its own: type your computer's name or IP and tap **Save 
 - `setup/deploy.sh` pushes changes to a Pad, `setup/pull-from-pad.sh` backs its layouts up, and
   `setup/make-icons.py` regenerates the icon library.
 </details>
+
+## Pad Deck Helper
+
+Keys that open websites or apps, run Shortcuts or press keys need a small helper on your Mac. One line in Terminal
+installs it, starts it at every login and prints a pairing code:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/FedorSosnin/pad-deck/main/helper/install-helper.sh | bash
+```
+
+On the Pad, open ☰ → **Helper** and enter the code (and the Mac's name, if it isn't the one running OBS). For
+**Press keys**, also allow it under System Settings → Privacy & Security → Accessibility.
+
+**Smart plugs** need no helper: choose *Smart plug* in the key editor and enter the plug's IP. Shelly (all
+generations) and Tasmota plugs work out of the box. *Web request* covers anything else with a local web API, such
+as Home Assistant webhooks.
 
 ## Creality Nebula Pad (Pad Deck Lite)
 

@@ -48,8 +48,8 @@ class OBS {
 
   async #handle({ op, d }) {
     if (op === 0) {
-      // Hello → Identify. Subscribe to Scenes (4), Inputs (8) and Outputs (64) events.
-      const identify = { rpcVersion: 1, eventSubscriptions: 4 | 8 | 64 };
+      // Hello → Identify. Subscribe to Scenes (4), Inputs (8), Outputs (64) and Scene Items (128) events.
+      const identify = { rpcVersion: 1, eventSubscriptions: 4 | 8 | 64 | 128 };
       if (d.authentication) {
         const secret = await sha256b64(this.password + d.authentication.salt);
         identify.authentication = await sha256b64(secret + d.authentication.challenge);

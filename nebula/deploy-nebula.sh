@@ -12,7 +12,7 @@ MAC=$(route -n get "$NEB" 2>/dev/null | awk '/interface:/{print $2}' | xargs ipc
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"; [ -n "${HTTP:-}" ] && kill $HTTP 2>/dev/null' EXIT
 mkdir -p "$STAGE/pad-deck/app" "$STAGE/pad-deck/lite"
-rsync -a --exclude .git --exclude .gitignore --exclude .claude --exclude docs --exclude setup --exclude nebula \
+rsync -a --exclude .git --exclude .gitignore --exclude .claude --exclude docs --exclude setup --exclude nebula --exclude helper \
   --exclude layouts --exclude layout.json --exclude settings.json --exclude build-image.sh --exclude README.md \
   --exclude __pycache__ --exclude '*.img' ./ "$STAGE/pad-deck/app/"
 cp nebula/deck_lite.py "$STAGE/pad-deck/lite/"

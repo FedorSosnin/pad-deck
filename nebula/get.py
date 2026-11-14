@@ -47,7 +47,7 @@ SOURCE = os.environ.get("PAD_DECK_TARBALL", "https://github.com/FedorSosnin/pad-
 D = "/usr/data/pad-deck"
 # Not part of the app on the Nebula (or yours to keep): never copied over.
 SKIP = {".git", ".github", ".gitignore", "docs", "setup", "nebula", "layouts", "layout.json", "settings.json",
-        "build-image.sh", "README.md"}
+        "build-image.sh", "README.md", "helper"}
 
 print("Downloading Pad Deck…", flush=True)
 data = urllib.request.urlopen(SOURCE, timeout=180).read()

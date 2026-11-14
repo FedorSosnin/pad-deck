@@ -22,7 +22,20 @@ let editing = false;
 let page = 0;        // index of the page on screen; remembered per device
 try { page = +localStorage.getItem("page") || 0; } catch {}
 const buttons = () => layout.pages[page].buttons;
-const state = { scene: null, muted: {}, stream: false, rec: false };
+const state = { scene: null, muted: {}, stream: false, rec: false, shown: {} };
+
+// What a key can do. Scene and mute keys keep their original fields ({scene} / {mute}); every other kind is
+// stored as {action: {type, ...}}. OBS kinds run straight from this screen; the rest go through the Pad's
+// server (api/run), which reaches smart plugs and web addresses itself and the Pad Deck Helper on the computer.
+const ACTIONS = [
+  ["OBS", [["scene", "Switch scene"], ["mute", "Mute / unmute audio"], ["stream", "Start / stop stream"],
+    ["record", "Start / stop recording"], ["source", "Show / hide a source"]]],
+  ["On the computer", [["url", "Open a website"], ["app", "Open an app"], ["shortcut", "Run a Shortcut (Mac)"], ["hotkey", "Press keys"]]],
+  ["Smart home & web", [["plug", "Smart plug"], ["http", "Web request"]]],
+];
+const OBS_KINDS = new Set(["scene", "mute", "stream", "record", "source"]);
+const kindOf = (b) => (b.scene !== undefined ? "scene" : b.mute !== undefined ? "mute" : b.action?.type || "scene");
+const srcKey = (scene, source) => `${scene}\u0000${source}`;
 
 // ---------- Layout persistence ----------
 
@@ -80,6 +93,9 @@ function buttonEl(b) {
   el.append(Object.assign(document.createElement("i"), { className: "led" }));
   let label = b.label;
   if (b.scene && b.scene === state.scene) el.classList.add("live");
+  const a = b.action;
+  if ((a?.type === "stream" && state.stream) || (a?.type === "record" && state.rec)) el.classList.add("hot");
+  if (a?.type === "source" && state.shown[srcKey(a.scene, a.source)]) el.classList.add("live");
   let muted = false;
   if (b.mute) {
     const m = state.muted[b.mute];
@@ -190,6 +206,40 @@ function press(b) {
     obs.request("SetCurrentProgramScene", { sceneName: b.scene }).catch((e) => { toast(e.message); sync(); });
   }
   if (b.mute) obs.request("ToggleInputMute", { inputName: b.mute }).catch((e) => toast(e.message));
+  const a = b.action;
+  if (!a) return;
+  if (a.type === "stream") obs.request("ToggleStream").catch((e) => toast(e.message));
+  else if (a.type === "record") obs.request("ToggleRecord").catch((e) => toast(e.message));
+  else if (a.type === "source") toggleSource(a).catch((e) => toast(e.message));
+  else runAction(a).then((msg) => toast(msg), (e) => toast(e.message));
+}
+
+// Non-OBS actions run on the Pad's server. Resolves to a short message for the screen.
+async function runAction(a) {
+  const res = await fetch("api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(a) });
+  const body = await res.json().catch(() => ({}));
+  if (res.status === 403) throw new Error("Only the Pad itself can run this");
+  if (!res.ok) throw new Error(body.error || res.statusText);
+  return body.message || "Done";
+}
+
+// Scene items are addressed by id; ids are looked up once and remembered (also to read OBS's events).
+const itemIds = {}, itemNames = {};
+async function sceneItemId(scene, source) {
+  const k = srcKey(scene, source);
+  if (itemIds[k] === undefined) {
+    itemIds[k] = (await obs.request("GetSceneItemId", { sceneName: scene, sourceName: source })).sceneItemId;
+    itemNames[srcKey(scene, itemIds[k])] = source;
+  }
+  return itemIds[k];
+}
+
+async function toggleSource(a) {
+  const id = await sceneItemId(a.scene, a.source);
+  const k = srcKey(a.scene, a.source);
+  const on = !(state.shown[k] ?? (await obs.request("GetSceneItemEnabled", { sceneName: a.scene, sceneItemId: id })).sceneItemEnabled);
+  state.shown[k] = on; render(); // optimistic; the OBS event confirms
+  await obs.request("SetSceneItemEnabled", { sceneName: a.scene, sceneItemId: id, sceneItemEnabled: on });
 }
 
 // ---------- Pointer handling: taps (live) and drag/tap (edit) ----------
@@ -404,10 +454,11 @@ function openEditor(i) {
   editIndex = i;
   draft = buttons()[i] ? { ...buttons()[i] } : { label: "", bg: SWATCHES[0] };
   $("delBtn").hidden = $("dupBtn").hidden = !buttons()[i];
-  if (!draft.scene && !draft.mute) {
+  if (!draft.scene && !draft.mute && !draft.action) {
     draft.scene = lists.scenes[0] || "";
     draft.label = draft.scene;
   }
+  if (draft.action) draft.action = { ...draft.action };
   $("colorPop").hidden = true;
   fillEditor();
   // The tap that opened the editor still has a click to come, which would land on whatever is now under
@@ -417,7 +468,7 @@ function openEditor(i) {
   const before = JSON.stringify(lists);
   refreshLists().then(() => {
     if (editIndex !== i || !$("editor").classList.contains("open") || JSON.stringify(lists) === before) return;
-    if (!draft.scene && !draft.mute) { draft.scene = lists.scenes[0] || ""; draft.label = draft.scene; }
+    if (!draft.scene && !draft.mute && !draft.action) { draft.scene = lists.scenes[0] || ""; draft.label = draft.scene; }
     fillEditor();
   });
 }
@@ -524,8 +575,17 @@ $("cpHex").oninput = (e) => {
 $("cpDone").onclick = () => { $("colorPop").hidden = true; $("cpHex").blur(); };
 
 function fillEditor() {
-  const kind = draft.mute !== undefined ? "mute" : "scene";
-  for (const b of $("kind").children) b.classList.toggle("on", b.dataset.kind === kind);
+  const kind = kindOf(draft);
+  if (!$("actSel").children.length) {
+    $("actSel").append(...ACTIONS.map(([group, kinds]) => {
+      const g = document.createElement("optgroup");
+      g.label = group;
+      g.append(...kinds.map(([k, name]) => new Option(name, k)));
+      return g;
+    }));
+  }
+  $("actSel").value = kind;
+  fillActionFields(kind);
   $("sceneField").hidden = kind !== "scene";
   $("muteField").hidden = kind !== "mute";
   options($("sceneSel"), lists.scenes, draft.scene);
@@ -542,19 +602,146 @@ function updatePreview() {
   $("preview").replaceWith(el);
 }
 
-for (const b of $("kind").children) {
-  b.onclick = () => {
-    if (b.dataset.kind === "mute" && draft.mute === undefined) {
-      delete draft.scene;
-      draft.mute = lists.inputs.find((n) => /mic/i.test(n)) || lists.inputs[0] || "";
-      draft.label = "Mic";
-    } else if (b.dataset.kind === "scene" && draft.scene === undefined) {
-      delete draft.mute;
-      draft.scene = lists.scenes[0] || "";
-      draft.label = draft.scene;
-    }
-    fillEditor();
+// A new kind of action starts with a sensible label and icon (kept if you had already chosen your own).
+const KIND_DEFAULTS = {
+  scene: { label: "", icon: undefined }, mute: { label: "Mic", icon: "deck-mic.svg" },
+  stream: { label: "Stream", icon: "deck-broadcast.svg" }, record: { label: "Record", icon: "deck-record.svg" },
+  source: { label: "", icon: "deck-eye.svg" }, url: { label: "Website", icon: "deck-screen-website.svg" },
+  app: { label: "", icon: "deck-desktop.svg" }, shortcut: { label: "", icon: "deck-lightning.svg" },
+  hotkey: { label: "Keys", icon: "deck-keyboard.svg" }, plug: { label: "Plug", icon: "deck-smart-plug.svg" },
+  http: { label: "Request", icon: "deck-wifi.svg" },
+};
+$("actSel").onchange = (e) => {
+  const from = kindOf(draft), kind = e.target.value;
+  const was = KIND_DEFAULTS[from];
+  const autoLabel = !draft.label || draft.label === was.label || draft.label === draft.scene || draft.label === autoName(draft);
+  const autoIcon = !draft.icon || draft.icon === was.icon;
+  delete draft.scene; delete draft.mute; delete draft.action;
+  if (kind === "scene") draft.scene = lists.scenes[0] || "";
+  else if (kind === "mute") draft.mute = lists.inputs.find((n) => /mic/i.test(n)) || lists.inputs[0] || "";
+  else if (kind === "source") draft.action = { type: kind, scene: state.scene || lists.scenes[0] || "", source: "" };
+  else if (kind === "plug") draft.action = { type: kind, brand: "shelly", ip: "", do: "toggle" };
+  else if (kind === "http") draft.action = { type: kind, method: "GET", url: "", body: "" };
+  else draft.action = { type: kind };
+  if (autoLabel) draft.label = kind === "scene" ? draft.scene : KIND_DEFAULTS[kind].label;
+  if (autoIcon) draft.icon = KIND_DEFAULTS[kind].icon;
+  fillEditor();
+};
+
+// The name a key takes from what it does (an app's name, a source's name…), so the label can follow it.
+function autoName(b) {
+  const a = b.action || {};
+  return a.type === "source" ? a.source : a.type === "app" ? a.app : a.type === "shortcut" ? a.shortcut : undefined;
+}
+
+// Lists from the Pad Deck Helper (apps, Shortcuts) and OBS (sources in a scene), fetched once when needed.
+const helperLists = {};
+const sceneSources = {};
+function loadHelperList(what) {
+  if (helperLists[what]) return;
+  helperLists[what] = { loading: true, items: [] };
+  fetch(`api/helper?what=${what}`).then((r) => r.json().then((j) => {
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    helperLists[what] = { items: j[what] || [] };
+  })).catch((e) => { helperLists[what] = { items: [], error: e.message }; })
+    .finally(() => { if ($("editor").classList.contains("open") && draft.action?.type) fillActionFields(kindOf(draft)); });
+}
+function loadSources(scene) {
+  if (!scene || sceneSources[scene]) return;
+  sceneSources[scene] = [];
+  obs.request("GetSceneItemList", { sceneName: scene })
+    .then((r) => { sceneSources[scene] = r.sceneItems.map((i) => i.sourceName); })
+    .catch(() => { delete sceneSources[scene]; })
+    .finally(() => { if ($("editor").classList.contains("open") && draft.action?.type === "source") fillActionFields("source"); });
+}
+
+// The fields for the chosen kind of action, built fresh each time (there are only a few).
+function fillActionFields(kind) {
+  const box = $("actFields");
+  const a = draft.action;
+  const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
+  const hint = (text, err) => el("div", { className: "hint" + (err ? " err" : ""), textContent: text });
+  const set = (key, value, follow) => {
+    const before = autoName(draft);
+    a[key] = value;
+    if (follow && (!draft.label || draft.label === before)) { draft.label = autoName(draft) || ""; $("labelIn").value = draft.label; }
+    updatePreview();
   };
+  const text = (label, key, placeholder, props = {}) => {
+    const input = el("input", { className: "input", type: "text", value: a[key] || "", placeholder, autocomplete: "off", spellcheck: false, ...props });
+    input.dataset.osk = "";
+    input.oninput = () => set(key, input.value);
+    return el("label", { className: "field" }, label, input);
+  };
+  const choose = (label, key, values, { follow, then, placeholder } = {}) => {
+    const sel = el("select");
+    options(sel, values, a[key]);
+    if (placeholder) sel.prepend(new Option(placeholder, "", false, !a[key]));
+    if (sel.value !== (a[key] ?? "") && values.length && !placeholder) { if (follow) set(key, sel.value, true); else a[key] = sel.value; }
+    sel.onchange = () => { set(key, sel.value, follow); then?.(); };
+    return el("label", { className: "field" }, label, sel);
+  };
+  const pairs = (sel, list) => { // [value, text] options
+    sel.replaceChildren(...list.map(([v, t]) => new Option(t, v, false, v === (a[sel.dataset.key] ?? ""))));
+    return sel;
+  };
+  const pick = (label, key, list) => {
+    const sel = el("select");
+    sel.dataset.key = key;
+    pairs(sel, list);
+    sel.onchange = () => set(key, sel.value);
+    return el("label", { className: "field" }, label, sel);
+  };
+  // Lists from the Helper: a dropdown once loaded; typing the name works too if the Helper can't be reached yet.
+  const fromHelper = (label, key, what) => {
+    loadHelperList(what);
+    const l = helperLists[what];
+    if (l.items.length) return [choose(label, key, l.items, { follow: true, placeholder: `Choose ${what === "apps" ? "an app" : "a Shortcut"}…` })];
+    const t = text(label, key, what === "apps" ? "e.g. Spotify" : "Shortcut name");
+    t.querySelector("input").oninput = (e) => set(key, e.target.value, true);
+    return [t, hint(l.loading ? "Asking the Pad Deck Helper for the list…" : `${l.error || "No list from the Helper"}. Type the name instead.`, !l.loading)];
+  };
+  const kids = [];
+  if (kind === "stream" || kind === "record") {
+    kids.push(hint(`Starts ${kind === "stream" ? "streaming" : "recording"} in OBS, or stops it. The key's light is red while it's on.`));
+  } else if (kind === "source") {
+    loadSources(a.scene);
+    kids.push(choose("Scene", "scene", lists.scenes, { then: () => { a.source = ""; fillActionFields(kind); } }),
+      choose("Source", "source", sceneSources[a.scene] || [], { follow: true }),
+      hint("The key's light is green while the source is showing."));
+  } else if (kind === "url") {
+    kids.push(text("Web address", "url", "e.g. youtube.com/studio", { inputMode: "url" }));
+  } else if (kind === "app") {
+    kids.push(...fromHelper("App", "app", "apps"));
+  } else if (kind === "shortcut") {
+    kids.push(...fromHelper("Shortcut", "shortcut", "shortcuts"));
+  } else if (kind === "hotkey") {
+    kids.push(text("Keys", "keys", "e.g. cmd+shift+4 or ctrl+f5"),
+      hint("Join keys with +: cmd, shift, alt, ctrl, then a letter, number, f1–f12, space, return, esc, tab or an arrow."));
+  } else if (kind === "plug") {
+    kids.push(pick("Plug type", "brand", [["shelly", "Shelly (Plug S, older models)"], ["shelly2", "Shelly Plus / Gen 2 and newer"], ["tasmota", "Tasmota"]]),
+      text("Plug's IP address", "ip", "e.g. 192.168.1.50", { inputMode: "decimal" }),
+      pick("When pressed", "do", [["toggle", "Turn on / off"], ["on", "Turn on"], ["off", "Turn off"]]),
+      hint("Works with plugs that answer on your network without a cloud account. Find the IP in the plug's app or your router."));
+  } else if (kind === "http") {
+    kids.push(pick("Method", "method", [["GET", "GET"], ["POST", "POST"], ["PUT", "PUT"]]),
+      text("Address", "url", "http://…", { inputMode: "url" }),
+      text("Body (optional)", "body", '{"entity_id": "light.desk"}'),
+      hint("Sent from the Pad: webhooks, Home Assistant, Companion, any device with a web API."));
+  }
+  if (!OBS_KINDS.has(kind)) {
+    const out = hint("");
+    const test = el("button", { className: "barbtn", textContent: "Test" });
+    test.onclick = () => {
+      out.className = "hint"; out.textContent = "…";
+      runAction(draft.action).then((m) => { out.textContent = m; }, (e) => { out.className = "hint err"; out.textContent = e.message; });
+    };
+    kids.push(el("div", { className: "test-row" }, test, out));
+    if (["url", "app", "shortcut", "hotkey"].includes(kind) && !Feedback.settings.helperCode) {
+      kids.push(hint("Needs the Pad Deck Helper on your computer: see Menu → Helper.", true));
+    }
+  }
+  box.replaceChildren(...kids);
 }
 
 $("sceneSel").onchange = (e) => {
@@ -861,6 +1048,11 @@ async function sync() {
     for (const name of new Set(layout.pages.flatMap((p) => p.buttons).filter((b) => b?.mute).map((b) => b.mute))) {
       state.muted[name] = (await obs.request("GetInputMute", { inputName: name })).inputMuted;
     }
+    for (const k of Object.keys(itemIds)) delete itemIds[k]; // OBS may have restarted: ids can change
+    for (const a of layout.pages.flatMap((p) => p.buttons).filter((b) => b?.action?.type === "source").map((b) => b.action)) {
+      const id = await sceneItemId(a.scene, a.source).catch(() => null);
+      if (id !== null) state.shown[srcKey(a.scene, a.source)] = (await obs.request("GetSceneItemEnabled", { sceneName: a.scene, sceneItemId: id })).sceneItemEnabled;
+    }
     state.stream = (await obs.request("GetStreamStatus")).outputActive;
     state.rec = (await obs.request("GetRecordStatus")).outputActive;
   } catch (e) { console.warn("sync failed", e); }
@@ -895,6 +1087,9 @@ obs.onEvent = (type, d) => {
   else if (type === "InputMuteStateChanged") state.muted[d.inputName] = d.inputMuted;
   else if (type === "StreamStateChanged") state.stream = d.outputActive;
   else if (type === "RecordStateChanged") state.rec = d.outputActive;
+  else if (type === "SceneItemEnableStateChanged" && itemNames[srcKey(d.sceneName, d.sceneItemId)] !== undefined) {
+    state.shown[srcKey(d.sceneName, itemNames[srcKey(d.sceneName, d.sceneItemId)])] = d.sceneItemEnabled;
+  }
   else return;
   if (!editing) render();
 };

@@ -10,6 +10,7 @@ const Menu = (() => {
     sound: icon('<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>'),
     system: icon('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/>'),
     obs: icon('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="7.5" r="2"/><circle cx="8" cy="14.5" r="2"/><circle cx="16" cy="14.5" r="2"/>'),
+    helper: icon('<rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="m9 10.5 2 2 4-4"/>'),
     layouts: icon('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'),
     lock: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>',
   };
@@ -17,6 +18,7 @@ const Menu = (() => {
   const SECTIONS = [
     { id: "system", label: "System", icon: ICONS.system, render: renderSystem },
     { id: "obs", label: "OBS", icon: ICONS.obs, render: renderObs },
+    { id: "helper", label: "Helper", icon: ICONS.helper, render: renderHelper },
     { id: "layouts", label: "Layouts", icon: ICONS.layouts, render: renderLayouts },
     { id: "wifi", label: "Wi-Fi", icon: ICONS.wifi, render: renderWifi },
     { id: "terminal", label: "Terminal", icon: ICONS.terminal, render: renderTerminal, leave: leaveTerminal },
@@ -252,6 +254,42 @@ const Menu = (() => {
       h("div", { className: "hint", style: "margin-top: 12px",
         textContent: "In OBS: Tools → WebSocket Server Settings → Enable WebSocket server. The port and password are shown there." }),
     );
+  }
+
+  // ---------- Helper: the small app on the computer that opens websites and apps, runs Shortcuts, presses keys ----------
+
+  function renderHelper(el) {
+    const s = Feedback.settings;
+    const field = (label, props) => {
+      const input = h("input", { className: "input", autocomplete: "off", spellcheck: false, ...props });
+      input.dataset.osk = "";
+      return [h("label", { className: "field", textContent: label }, input), input];
+    };
+    const [hostField, host] = field("Computer running the Helper", { type: "text", value: s.helperHost || "",
+      placeholder: `Same as OBS${s.obsHost ? ` (${s.obsHost})` : ""}` });
+    const [codeField, code] = field("Pairing code", { type: "text", value: s.helperCode || "", inputMode: "numeric", placeholder: "6 digits" });
+    const status = h("div", { className: "hint" });
+    const test = async () => {
+      status.textContent = "Checking…";
+      try {
+        const r = await api("helper?what=ping");
+        status.textContent = `Connected to ${r.computer}.`;
+      } catch (e) { status.textContent = e.message; }
+    };
+    el.append(
+      h("div", { className: "card obs-form" }, h("div", { className: "obs-row" }, codeField, hostField),
+        h("div", { className: "row" }, button("Save & test", async () => {
+          await Feedback.save({ helperHost: host.value.trim(), helperCode: code.value.trim() });
+          document.activeElement?.blur();
+          test();
+        }, "primary"), status)),
+      h("div", { className: "hint", style: "margin-top: 12px; line-height: 1.5" },
+        "Keys that open websites or apps, run Shortcuts or press keys need the Pad Deck Helper on your Mac. "
+        + "Install it with one line in Terminal, which then shows the pairing code:",
+        h("pre", { className: "cmd", textContent: "curl -fsSL https://raw.githubusercontent.com/FedorSosnin/pad-deck/main/helper/install-helper.sh | bash" }),
+        "For “Press keys”, also allow it under System Settings → Privacy & Security → Accessibility."),
+    );
+    if (s.helperCode) test();
   }
 
   // ---------- Layouts: save the current key layout under a name, load one back ----------

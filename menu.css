@@ -76,3 +76,5 @@ body.osk-open.osk-hidden .menu-panel { height: 100vh; }
 .obs-form { display: grid; gap: 14px; }
 .obs-row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; }
 .obs-form .row .hint { flex: 1; }
+.hint pre.cmd { margin: 8px 0; padding: 10px 12px; background: #0c0d0f; border-radius: 8px; color: #d6d9df;
+  font: 12px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
