@@ -411,6 +411,10 @@ class OBS(threading.Thread):
             pass
 
 
+def plug_key(a):
+    return (a.get("brand"), a.get("ip"), a.get("outlet") or "")
+
+
 # ---------- Drawing ----------
 
 def rounded(size, r, fill, scale=3):
@@ -636,7 +640,7 @@ class Deck:
         self.mtimes = {}
         self.page = 0
         self.state = {"status": "connecting", "scene": None, "muted": {}, "stream": False, "rec": False,
-                      "shown": {}, "items": {}}                 # (scene, source) → showing? / sceneItemId
+                      "shown": {}, "items": {}, "plugs": {}}                 # (scene, source) → showing? / sceneItemId
         self.obs = OBS(self.events)
         self.touch = None
         self.pressed = None
@@ -723,6 +727,8 @@ class Deck:
             st["hot"] = self.state["stream" if a["type"] == "stream" else "rec"]
         elif a.get("type") == "source":
             st["live"] = bool(self.state["shown"].get((a.get("scene"), a.get("source"))))
+        elif a.get("type") == "plug":
+            st["live"] = bool(self.state["plugs"].get(plug_key(a)))
         return st
 
     # -- drawing
@@ -836,7 +842,7 @@ class Deck:
             _, _, kw, kh = self.slot_box(i)
             base = self.key_state(b, i)
             looks = [{"pressed": True}]
-            if b.get("scene") or (b.get("action") or {}).get("type") == "source":
+            if b.get("scene") or (b.get("action") or {}).get("type") in ("source", "plug"):
                 looks.append({"live": not base.get("live")})
             if (b.get("action") or {}).get("type") in ("stream", "record"):
                 looks.append({"hot": not base.get("hot")})
@@ -1001,10 +1007,40 @@ class Deck:
             else:
                 self.obs.ask_source(*k)
                 self.toast("Source not found in OBS")
+        elif t == "plug":
+            k = plug_key(a)
+            if a.get("do") in ("on", "off"):
+                self.state["plugs"][k] = a["do"] == "on"
+            elif k in self.state["plugs"]:
+                self.state["plugs"][k] = not self.state["plugs"][k]     # optimistic; the next check confirms
+            threading.Thread(target=self.run_action, args=(a, True), daemon=True).start()
         elif t:
             threading.Thread(target=self.run_action, args=(a,), daemon=True).start()
 
-    def run_action(self, a):
+    def watch_plugs(self):
+        """Smart plugs don't announce changes: ask the server every few seconds about plugs that have keys."""
+        while True:
+            self.plug_check.wait(4)
+            self.plug_check.clear()
+            plugs = {}
+            for p in self.layout.get("pages", []):
+                for b in p.get("buttons", []):
+                    a = (b or {}).get("action") or {}
+                    if a.get("type") == "plug" and a.get("ip"):
+                        plugs[plug_key(a)] = a
+            if not plugs:
+                continue
+            try:
+                req = urllib.request.Request("http://127.0.0.1:8099/api/plugs/state", method="POST",
+                                             data=json.dumps(list(plugs.values())).encode(),
+                                             headers={"Content-Type": "application/json"})
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    states = json.load(r)["states"]
+            except (OSError, ValueError, KeyError):
+                continue
+            self.events.put(("plugs", {k: v for k, v in zip(plugs, states) if v is not None}))
+
+    def run_action(self, a, quiet=False):
         """Websites, apps, smart plugs…: run by the Pad Deck server next door; its answer shows in the bar."""
         try:
             req = urllib.request.Request("http://127.0.0.1:8099/api/run", data=json.dumps(a).encode(),
@@ -1018,13 +1054,21 @@ class Deck:
                 msg = str(e)
         except (OSError, ValueError) as e:
             msg = "Couldn't run it: %s" % e
-        self.events.put(("toast", msg))
+        if quiet and msg.startswith(("Plug ", "Outlet ")):
+            msg = None                                           # a plug key: its light says it worked
+        if quiet:
+            time.sleep(0.3)
+            self.plug_check.set()
+        if msg:
+            self.events.put(("toast", msg))
 
     def run(self):
         os.system("killall boot_display jpeg_display_shell 2>/dev/null")
         self.load()
         self.apply_brightness()
         self.obs.start()
+        self.plug_check = threading.Event()
+        threading.Thread(target=self.watch_plugs, daemon=True).start()
         self.touch = Touch(self.events)
         self.touch.start()
         self.render()
@@ -1072,6 +1116,11 @@ class Deck:
                     continue
                 if self.events.empty():
                     self.refresh()
+            elif kind == "plugs":
+                if any(self.state["plugs"].get(k) != v for k, v in ev[1].items()):
+                    self.state["plugs"].update(ev[1])
+                    if self.events.empty():
+                        self.refresh()
             elif kind == "toast":
                 msg = ev[1]
                 self.toast(msg if len(msg) <= 38 else msg[:37] + "…", 2.5)

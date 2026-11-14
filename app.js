@@ -22,7 +22,7 @@ let editing = false;
 let page = 0;        // index of the page on screen; remembered per device
 try { page = +localStorage.getItem("page") || 0; } catch {}
 const buttons = () => layout.pages[page].buttons;
-const state = { scene: null, muted: {}, stream: false, rec: false, shown: {} };
+const state = { scene: null, muted: {}, stream: false, rec: false, shown: {}, plugs: {} };
 
 // What a key can do. Scene and mute keys keep their original fields ({scene} / {mute}); every other kind is
 // stored as {action: {type, ...}}. OBS kinds run straight from this screen; the rest go through the Pad's
@@ -36,6 +36,7 @@ const ACTIONS = [
 const OBS_KINDS = new Set(["scene", "mute", "stream", "record", "source"]);
 const kindOf = (b) => (b.scene !== undefined ? "scene" : b.mute !== undefined ? "mute" : b.action?.type || "scene");
 const srcKey = (scene, source) => `${scene}\u0000${source}`;
+const plugKey = (a) => `${a.brand}|${a.ip}|${a.outlet || ""}`;
 
 // ---------- Layout persistence ----------
 
@@ -96,6 +97,7 @@ function buttonEl(b) {
   const a = b.action;
   if ((a?.type === "stream" && state.stream) || (a?.type === "record" && state.rec)) el.classList.add("hot");
   if (a?.type === "source" && state.shown[srcKey(a.scene, a.source)]) el.classList.add("live");
+  if (a?.type === "plug" && state.plugs[plugKey(a)]) el.classList.add("live");
   let muted = false;
   if (b.mute) {
     const m = state.muted[b.mute];
@@ -211,8 +213,33 @@ function press(b) {
   if (a.type === "stream") obs.request("ToggleStream").catch((e) => toast(e.message));
   else if (a.type === "record") obs.request("ToggleRecord").catch((e) => toast(e.message));
   else if (a.type === "source") toggleSource(a).catch((e) => toast(e.message));
-  else runAction(a).then((msg) => toast(msg), (e) => toast(e.message));
+  else if (a.type === "plug") {
+    if (a.do === "on" || a.do === "off") state.plugs[plugKey(a)] = a.do === "on";
+    else if (state.plugs[plugKey(a)] !== undefined) state.plugs[plugKey(a)] = !state.plugs[plugKey(a)];
+    render(); // optimistic; the next check confirms
+    runAction(a).catch((e) => toast(e.message)).finally(() => setTimeout(checkPlugs, 300));
+  } else runAction(a).then((msg) => toast(msg), (e) => toast(e.message));
 }
+
+// Smart plugs don't tell anyone when they change, so the Pad asks every few seconds (only about plugs that
+// have keys) and lights those keys green while the plug is on.
+let plugsBusy = false;
+async function checkPlugs() {
+  const plugs = [...new Map(layout.pages.flatMap((p) => p.buttons).filter((b) => b?.action?.type === "plug" && b.action.ip)
+    .map((b) => [plugKey(b.action), b.action])).values()];
+  if (!plugs.length || plugsBusy) return;
+  plugsBusy = true;
+  try {
+    const res = await fetch("api/plugs/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(plugs) });
+    const { states } = await res.json();
+    let changed = false;
+    plugs.forEach((a, i) => {
+      if (states[i] !== null && state.plugs[plugKey(a)] !== states[i]) { state.plugs[plugKey(a)] = states[i]; changed = true; }
+    });
+    if (changed && !editing) render();
+  } catch {} finally { plugsBusy = false; }
+}
+setInterval(() => { if (!document.hidden) checkPlugs(); }, 4000);
 
 // Non-OBS actions run on the Pad's server. Resolves to a short message for the screen.
 async function runAction(a) {
@@ -1164,7 +1191,7 @@ async function intro() {
     { duration: 500, delay: firstLoad ? 550 : 250, easing: "cubic-bezier(.16, 1, .3, 1)", fill: "backwards" });
 }
 
-loadLayout().then(() => { render(); sync(); }).catch(() => toast("Couldn't load layout")).finally(intro);
+loadLayout().then(() => { render(); sync(); checkPlugs(); }).catch(() => toast("Couldn't load layout")).finally(intro);
 // Connect once the settings (which may name the OBS computer) have loaded. A new Pad with no OBS chosen
 // yet opens Menu → OBS so it can be set up on the touchscreen.
 Feedback.ready.then(() => {

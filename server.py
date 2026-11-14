@@ -14,6 +14,7 @@ DELETE /api/layouts?name=…    delete a saved layout
 GET  /api/icons               list of icon filenames
 POST /api/icons               upload an icon (raw body, X-Filename header)
 GET  /api/plugs               Kasa smart plugs found on the network
+POST /api/plugs/state         [{brand, ip, outlet}] → {"states": [true/false/null]}: whether plug keys are on
 GET  /api/settings            press feedback settings (settings.json)
 PUT  /api/settings            save them
 POST /api/buzz                pulse the Pad 7 vibration motor
@@ -257,6 +258,51 @@ def kasa_switch(ip, do, outlet=None):
         on = do == "on"
     kasa(ip, dict(ctx, system={"set_relay_state": {"state": int(on)}}))
     return "%s %s" % ("Plug" if not outlet else "Outlet", "on" if on else "off")
+
+
+def plug_states(plugs):
+    """Whether each plug [{brand, ip, outlet}] is on: True / False, or None if it didn't answer. Asked all at once."""
+    out = [None] * len(plugs)
+    kasa_info = {}                                              # one question per Kasa device, even for strips
+
+    def ask(i, p):
+        ip, brand = str(p.get("ip", "")), p.get("brand")
+        try:
+            if brand == "kasa":
+                if ip not in kasa_info:
+                    kasa_info[ip] = kasa(ip, {"system": {"get_sysinfo": {}}})["system"]["get_sysinfo"]
+                info, outlet = kasa_info[ip], p.get("outlet")
+                if outlet:
+                    child = next((c for c in info.get("children", []) if outlet.endswith(c["id"])), None)
+                    out[i] = bool(child["state"]) if child else None
+                else:
+                    out[i] = bool(info.get("relay_state"))
+                return
+            path = {"shelly": "/relay/0", "shelly2": "/rpc/Switch.GetStatus?id=0", "tasmota": "/cm?cmnd=Power"}.get(brand)
+            if not path or not re.fullmatch(r"[A-Za-z0-9.\-:]+", ip):
+                return
+            with urllib.request.urlopen("http://" + resolve(ip) + path, timeout=3) as r:
+                j = json.load(r)
+            out[i] = bool(j.get("ison", j.get("output"))) if brand != "tasmota" else j.get("POWER") == "ON"
+        except (ValueError, KeyError, TypeError, OSError):
+            pass
+
+    kasa_ips = {}
+    threads = []
+    for i, p in enumerate(plugs[:40]):
+        if p.get("brand") == "kasa" and p.get("ip") in kasa_ips:   # strips: after the first outlet's answer
+            continue
+        if p.get("brand") == "kasa":
+            kasa_ips[p.get("ip")] = i
+        t = threading.Thread(target=ask, args=(i, p), daemon=True)
+        t.start()
+        threads.append(t)
+    for t in threads:
+        t.join(5)
+    for i, p in enumerate(plugs[:40]):                          # the other outlets of strips already asked
+        if p.get("brand") == "kasa" and out[i] is None and p.get("ip") in kasa_info:
+            ask(i, p)
+    return out
 
 
 def kasa_find(wait=1.5):
@@ -730,6 +776,9 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_error(404)
 
     def do_POST(self):
+        if self.path == "/api/plugs/state":                       # [{brand, ip, outlet}] → [on?]: for key lights
+            body = self.json_body()
+            return self.send_json({"states": plug_states(body if isinstance(body, list) else [])})
         if self.path == "/api/run":
             if not self.local_only():
                 return
