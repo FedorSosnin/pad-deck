@@ -284,10 +284,10 @@ const Menu = (() => {
           test();
         }, "primary"), status)),
       h("div", { className: "hint", style: "margin-top: 12px; line-height: 1.5" },
-        "Keys that open websites or apps, run Shortcuts or press keys need the Pad Deck Helper on your Mac. "
-        + "Install it with one line in Terminal, which then shows the pairing code:",
-        h("pre", { className: "cmd", textContent: "curl -fsSL https://raw.githubusercontent.com/FedorSosnin/pad-deck/main/helper/install-helper.sh | bash" }),
-        "For “Press keys”, also allow it under System Settings → Privacy & Security → Accessibility."),
+        "Keys that open websites or apps, run Shortcuts or press keys need the Pad Deck Helper app on your Mac. "
+        + "Download it, open it, and it shows the pairing code (also in its menu bar icon):",
+        h("pre", { className: "cmd", textContent: "github.com/FedorSosnin/pad-deck/releases/latest" }),
+        "For “Press keys”, choose Allow Key Presses… in its menu."),
     );
     if (s.helperCode) test();
   }

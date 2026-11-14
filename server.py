@@ -13,6 +13,7 @@ POST /api/layouts/new         start fresh: an empty 4×3 layout (the old one is 
 DELETE /api/layouts?name=…    delete a saved layout
 GET  /api/icons               list of icon filenames
 POST /api/icons               upload an icon (raw body, X-Filename header)
+GET  /api/plugs               Kasa smart plugs found on the network
 GET  /api/settings            press feedback settings (settings.json)
 PUT  /api/settings            save them
 POST /api/buzz                pulse the Pad 7 vibration motor
@@ -209,6 +210,87 @@ PLUG_URLS = {
 }
 
 
+# TP-Link Kasa plugs and strips: JSON over TCP port 9999, "encrypted" with a simple XOR chain. Newer Kasa
+# hardware (roughly 2023 on) only takes TP-Link's encrypted login instead, which isn't supported.
+def kasa_xor(data, decrypt=False):
+    key, out = 171, bytearray()
+    for b in data:
+        out.append(key ^ b)
+        key = b if decrypt else key ^ b
+    return bytes(out)
+
+
+def kasa(ip, cmd):
+    data = kasa_xor(json.dumps(cmd).encode())
+    try:
+        with socket.create_connection((resolve(ip), 9999), timeout=4) as s:
+            s.sendall(struct.pack(">I", len(data)) + data)
+            buf = b""
+            while len(buf) < 4 or len(buf) < 4 + struct.unpack(">I", buf[:4])[0]:
+                chunk = s.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+    except ConnectionRefusedError:
+        raise ValueError("This Kasa plug doesn't take local commands (newer Kasa models need TP-Link's login)")
+    except OSError as e:
+        raise ValueError("Couldn't reach the Kasa plug at %s: %s" % (ip, e))
+    try:
+        return json.loads(kasa_xor(buf[4:], decrypt=True))
+    except ValueError:
+        raise ValueError("The Kasa plug sent an answer Pad Deck doesn't understand")
+
+
+def kasa_switch(ip, do, outlet=None):
+    """Turn a Kasa plug (or one outlet of a strip, by its id) on, off, or the other way round."""
+    ctx = {"context": {"child_ids": [outlet]}} if outlet else {}
+    if do == "toggle":
+        info = kasa(ip, {"system": {"get_sysinfo": {}}})["system"]["get_sysinfo"]
+        if outlet:
+            child = next((c for c in info.get("children", []) if outlet.endswith(c["id"])), None)
+            if not child:
+                raise ValueError("That outlet isn't on the strip any more")
+            on = not child.get("state")
+        else:
+            on = not info.get("relay_state")
+    else:
+        on = do == "on"
+    kasa(ip, dict(ctx, system={"set_relay_state": {"state": int(on)}}))
+    return "%s %s" % ("Plug" if not outlet else "Outlet", "on" if on else "off")
+
+
+def kasa_find(wait=1.5):
+    """Kasa plugs on the network (they answer a broadcast): [{name, ip, outlet}], one entry per strip outlet."""
+    found = {}
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    s.settimeout(0.3)
+    probe = kasa_xor(json.dumps({"system": {"get_sysinfo": {}}}).encode())
+    end = time.time() + wait
+    try:
+        for _ in range(2):
+            s.sendto(probe, ("255.255.255.255", 9999))
+        while time.time() < end:
+            try:
+                data, (ip, _) = s.recvfrom(16384)
+                found[ip] = json.loads(kasa_xor(data, decrypt=True))["system"]["get_sysinfo"]
+            except socket.timeout:
+                continue
+            except (ValueError, KeyError):
+                continue
+    finally:
+        s.close()
+    plugs = []
+    for ip, info in sorted(found.items()):
+        if info.get("children"):
+            for c in info["children"]:
+                cid = c["id"] if len(c["id"]) > 2 else info.get("deviceId", "") + c["id"]
+                plugs.append({"name": "%s: %s" % (info.get("alias", ip), c.get("alias", c["id"])), "ip": ip, "outlet": cid})
+        else:
+            plugs.append({"name": info.get("alias", ip), "ip": ip, "outlet": ""})
+    return plugs
+
+
 def http_send(url, method=None, body=None):
     headers = {"Content-Type": "application/json"} if body and body.strip()[:1] in "{[" else {}
     try:
@@ -236,6 +318,8 @@ def run_action(a):
             raise ValueError("Enter the plug's IP address (from its app or your router)")
         if do not in ("toggle", "on", "off"):
             raise ValueError("Unknown plug action %r" % do)
+        if a.get("brand") == "kasa":
+            return kasa_switch(ip, do, a.get("outlet") or None)
         url = PLUG_URLS.get(a.get("brand"))
         if not url:
             raise ValueError("Unknown plug type %r" % a.get("brand"))
@@ -585,6 +669,8 @@ class Handler(SimpleHTTPRequestHandler):
                 return self.send_json(helper_call("/" + what))
             except ValueError as e:
                 return self.send_json({"error": str(e)}, 502)
+        if path == "/api/plugs":                                  # Kasa plugs on the network, for the key editor
+            return self.send_json({"plugs": kasa_find()})
         if path == "/api/device":
             return self.send_json({"device": DEVICE})
         if path == "/api/layouts":

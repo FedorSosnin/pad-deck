@@ -75,19 +75,23 @@ the OBS screen opens on its own: type your computer's name or IP and tap **Save 
 
 ## Pad Deck Helper
 
-Keys that open websites or apps, run Shortcuts or press keys need a small helper on your Mac. One line in Terminal
-installs it, starts it at every login and prints a pairing code:
+Keys that open websites or apps, run Shortcuts or press keys need **Pad Deck Helper**, a small menu bar app for
+the Mac (macOS 13 or later).
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/FedorSosnin/pad-deck/main/helper/install-helper.sh | bash
-```
+1. Download **Pad-Deck-Helper.zip** from the [latest release](https://github.com/FedorSosnin/pad-deck/releases/latest),
+   unzip it and drag **Pad Deck Helper** into Applications.
+2. Open it. It isn't notarized by Apple yet, so the first time macOS blocks it: open System Settings → Privacy &
+   Security, scroll down and click **Open Anyway**.
+3. It shows a pairing code. On the Pad, open ☰ → **Helper** and enter the code (and the Mac's name, if it isn't the
+   one running OBS).
 
-On the Pad, open ☰ → **Helper** and enter the code (and the Mac's name, if it isn't the one running OBS). For
-**Press keys**, also allow it under System Settings → Privacy & Security → Accessibility.
+Its menu bar icon pauses it, copies the pairing code, turns Open at Login on or off, and for **Press keys** keys
+takes you to the Accessibility switch it needs. Build it yourself with `helper/build-app.sh`.
 
-**Smart plugs** need no helper: choose *Smart plug* in the key editor and enter the plug's IP. Shelly (all
-generations) and Tasmota plugs work out of the box. *Web request* covers anything else with a local web API, such
-as Home Assistant webhooks.
+**Smart plugs** need no helper: choose *Smart plug* in the key editor. **TP-Link Kasa** plugs and strips are found
+on your network and listed by name (some newer Kasa models only work through TP-Link's cloud and can't be used).
+Shelly and Tasmota plugs work by IP address. *Web request* covers anything else with a local web API, such as Home
+Assistant webhooks.
 
 ## Creality Nebula Pad (Pad Deck Lite)
 

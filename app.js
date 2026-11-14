@@ -620,7 +620,7 @@ $("actSel").onchange = (e) => {
   if (kind === "scene") draft.scene = lists.scenes[0] || "";
   else if (kind === "mute") draft.mute = lists.inputs.find((n) => /mic/i.test(n)) || lists.inputs[0] || "";
   else if (kind === "source") draft.action = { type: kind, scene: state.scene || lists.scenes[0] || "", source: "" };
-  else if (kind === "plug") draft.action = { type: kind, brand: "shelly", ip: "", do: "toggle" };
+  else if (kind === "plug") draft.action = { type: kind, brand: "kasa", ip: "", do: "toggle" };
   else if (kind === "http") draft.action = { type: kind, method: "GET", url: "", body: "" };
   else draft.action = { type: kind };
   if (autoLabel) draft.label = kind === "scene" ? draft.scene : KIND_DEFAULTS[kind].label;
@@ -631,7 +631,8 @@ $("actSel").onchange = (e) => {
 // The name a key takes from what it does (an app's name, a source's name…), so the label can follow it.
 function autoName(b) {
   const a = b.action || {};
-  return a.type === "source" ? a.source : a.type === "app" ? a.app : a.type === "shortcut" ? a.shortcut : undefined;
+  return a.type === "source" ? a.source : a.type === "app" ? a.app : a.type === "shortcut" ? a.shortcut
+    : a.type === "plug" ? a.name : undefined;
 }
 
 // Lists from the Pad Deck Helper (apps, Shortcuts) and OBS (sources in a scene), fetched once when needed.
@@ -646,6 +647,16 @@ function loadHelperList(what) {
   })).catch((e) => { helperLists[what] = { items: [], error: e.message }; })
     .finally(() => { if ($("editor").classList.contains("open") && draft.action?.type) fillActionFields(kindOf(draft)); });
 }
+// Kasa plugs answer a broadcast, so the Pad can list them by name.
+let kasaPlugs = null;
+function findKasa(again) {
+  if (kasaPlugs && !again) return;
+  kasaPlugs = { loading: true, items: [] };
+  fetch("api/plugs").then((r) => r.json()).then((j) => { kasaPlugs = { items: j.plugs || [] }; })
+    .catch(() => { kasaPlugs = { items: [] }; })
+    .finally(() => { if ($("editor").classList.contains("open") && draft.action?.type === "plug") fillActionFields("plug"); });
+}
+
 function loadSources(scene) {
   if (!scene || sceneSources[scene]) return;
   sceneSources[scene] = [];
@@ -719,10 +730,36 @@ function fillActionFields(kind) {
     kids.push(text("Keys", "keys", "e.g. cmd+shift+4 or ctrl+f5"),
       hint("Join keys with +: cmd, shift, alt, ctrl, then a letter, number, f1–f12, space, return, esc, tab or an arrow."));
   } else if (kind === "plug") {
-    kids.push(pick("Plug type", "brand", [["shelly", "Shelly (Plug S, older models)"], ["shelly2", "Shelly Plus / Gen 2 and newer"], ["tasmota", "Tasmota"]]),
-      text("Plug's IP address", "ip", "e.g. 192.168.1.50", { inputMode: "decimal" }),
-      pick("When pressed", "do", [["toggle", "Turn on / off"], ["on", "Turn on"], ["off", "Turn off"]]),
-      hint("Works with plugs that answer on your network without a cloud account. Find the IP in the plug's app or your router."));
+    kids.push(pick("Plug type", "brand", [["kasa", "TP-Link Kasa"], ["shelly", "Shelly (Plug S, older models)"],
+      ["shelly2", "Shelly Plus / Gen 2 and newer"], ["tasmota", "Tasmota"]]));
+    kids[0].querySelector("select").addEventListener("change", () => fillActionFields(kind));
+    if (a.brand === "kasa") {
+      findKasa();
+      const sel = el("select");
+      const items = kasaPlugs.items;
+      const keyOf = (p) => `${p.ip}|${p.outlet || ""}`;
+      const current = a.ip ? `${a.ip}|${a.outlet || ""}` : "";
+      sel.append(new Option(kasaPlugs.loading ? "Looking for plugs…" : items.length ? "Choose a plug…" : "No Kasa plugs found", ""));
+      for (const p of items) sel.append(new Option(`${p.name}  (${p.ip})`, keyOf(p), false, keyOf(p) === current));
+      if (a.ip && !items.some((p) => keyOf(p) === current)) sel.append(new Option(`${a.name || a.ip}  (${a.ip})`, current, false, true));
+      sel.onchange = () => {
+        const p = items.find((x) => keyOf(x) === sel.value);
+        if (!p) return;
+        const before = autoName(draft);
+        Object.assign(a, { ip: p.ip, outlet: p.outlet || "", name: p.name });
+        if (!draft.label || draft.label === before || draft.label === KIND_DEFAULTS.plug.label) {
+          draft.label = p.name.replace(/^#\s*/, ""); $("labelIn").value = draft.label;
+        }
+        updatePreview();
+      };
+      const again = el("button", { className: "barbtn", textContent: "Search again", onclick: (e) => { e.preventDefault(); findKasa(true); fillActionFields(kind); } });
+      kids.push(el("label", { className: "field" }, "Plug", sel), el("div", { className: "test-row" }, again));
+    } else {
+      kids.push(text("Plug's IP address", "ip", "e.g. 192.168.1.50", { inputMode: "decimal" }));
+    }
+    kids.push(pick("When pressed", "do", [["toggle", "Turn on / off"], ["on", "Turn on"], ["off", "Turn off"]]),
+      hint(a.brand === "kasa" ? "Kasa plugs are found on your network automatically. (Some newer Kasa models only work through TP-Link's cloud and can't be used.)"
+        : "Works with plugs that answer on your network without a cloud account. Find the IP in the plug's app or your router."));
   } else if (kind === "http") {
     kids.push(pick("Method", "method", [["GET", "GET"], ["POST", "POST"], ["PUT", "PUT"]]),
       text("Address", "url", "http://…", { inputMode: "url" }),
