@@ -75,18 +75,22 @@ the OBS screen opens on its own: type your computer's name or IP and tap **Save 
 
 ## Pad Deck Helper
 
-Keys that open websites or apps, run Shortcuts or press keys need **Pad Deck Helper**, a small menu bar app for
-the Mac (macOS 13 or later).
+Keys that open websites or apps, run Shortcuts or press keys need **Pad Deck Helper**, a small app for the computer:
+download it from the [latest release](https://github.com/FedorSosnin/pad-deck/releases/latest).
 
-1. Download **Pad-Deck-Helper.zip** from the [latest release](https://github.com/FedorSosnin/pad-deck/releases/latest),
-   unzip it and drag **Pad Deck Helper** into Applications.
-2. Open it. It isn't notarized by Apple yet, so the first time macOS blocks it: open System Settings → Privacy &
-   Security, scroll down and click **Open Anyway**.
-3. It shows a pairing code. On the Pad, open ☰ → **Helper** and enter the code (and the Mac's name, if it isn't the
-   one running OBS).
+**Mac** (macOS 13 or later): unzip **Pad-Deck-Helper-Mac.zip** and drag **Pad Deck Helper** into Applications, then
+open it. It isn't notarized by Apple yet, so the first time macOS blocks it: open System Settings → Privacy &
+Security, scroll down and click **Open Anyway**. Its menu bar icon pauses it, copies the pairing code, turns Open
+at Login on or off, and for **Press keys** takes you to the Accessibility switch it needs.
 
-Its menu bar icon pauses it, copies the pairing code, turns Open at Login on or off, and for **Press keys** keys
-takes you to the Accessibility switch it needs. Build it yourself with `helper/build-app.sh`.
+**Windows** (10 or 11): unzip **Pad-Deck-Helper-Windows.zip** and run **PadDeckHelper.exe**. It isn't signed, so
+Windows may say it protected your PC: click **More info → Run anyway**, and allow it on private networks when
+asked. It lives in the tray by the clock and starts with Windows. *Press keys* works with Ctrl, Shift, Alt and
+Win (cmd counts as Ctrl) plus media keys: `playpause`, `next`, `previous`, `mute`, `volumeup`, `volumedown`.
+
+Both show a pairing code when first opened. On the Pad, open ☰ → **Helper** and enter the code (and the computer's
+name, if it isn't the one running OBS). Build them yourself with `helper/build-app.sh` (Mac) or
+`helper\windows\build.cmd` (Windows, nothing to install).
 
 **Smart plugs** need no helper: choose *Smart plug* in the key editor. **TP-Link Kasa** plugs and strips are found
 on your network and listed by name (some newer Kasa models only work through TP-Link's cloud and can't be used).

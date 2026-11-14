@@ -4,3 +4,4 @@ __pycache__/
 .claude/
 *.img
 dist/
+helper/windows/PadDeckHelper.exe
