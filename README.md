@@ -82,23 +82,38 @@ the OBS screen opens on its own: type your computer's name or IP and tap **Save 
 ## Pad Deck on a phone or tablet
 
 No Pad? **Pad Deck Helper** (below) also serves the whole deck to any browser on your Wi-Fi: phones, tablets, an
-old laptop.
+old laptop. Turn the phone sideways and it's a Pad Deck.
+
+![Pad Deck on a phone](docs/screenshots/phone-deck.png)
 
 1. Install and open Pad Deck Helper on the computer that runs OBS.
 2. In its menu (menu bar on a Mac, tray by the clock on Windows), choose **Use on a Phone or Tablet…**.
 3. Scan the QR code with the phone or tablet. The deck opens already paired. (Or type the address it shows and
    enter the pairing code.)
-4. Add it to the home screen: Safari → Share → **Add to Home Screen**, or Chrome → ⋮ → **Add to Home screen**.
-   It then opens full screen, like an app, and keeps the screen on while it's open.
+4. Put it on the home screen as an app:
+   - **iPhone or iPad:** in Safari, tap **Share** (the square with an arrow), then **Add to Home Screen**, then
+     **Add**.
+   - **Android:** in Chrome, tap **⋮**, then **Add to Home screen** (or **Install app**).
+
+   <img src="docs/screenshots/home-screen-icon.png" width="60" align="left" alt="Pad Deck home screen icon">
+   A **Pad Deck** icon appears on the home screen. Open the deck from there and it runs full screen, like an
+   app, and keeps the screen on while it's open.
+   <br clear="left">
 
 OBS connects to the computer running the Helper unless you set another one in ☰ → OBS. Keys, pages, icons,
-layouts and smart plugs work the same as on a Pad. Website keys can open on the computer or on the phone itself.
+layouts and smart plugs work the same as on a Pad, and editing works the same way too (hold a key or tap ✎):
+
+![Editing on a phone](docs/screenshots/phone-edit.png)
+
+Website keys can open on the computer or on the phone itself.
 To bring your keys over from a Pad, use **Copy your layout from a Pad** on the same page.
 
 Every device other than the computer itself needs the pairing code. On a Pad, other devices can open the deck
 at `http://PAD-ADDRESS:8099` too; once a Helper code is set on the Pad (Menu → Helper), they need that code.
 
 ## Pad Deck Helper
+
+<img src="docs/screenshots/helper-icon.png" width="96" align="right" alt="Pad Deck Helper icon">
 
 Keys that open websites or apps, run Shortcuts or press keys need **Pad Deck Helper**, a small app for the computer.
 It's also what runs the deck on [phones and tablets](#pad-deck-on-a-phone-or-tablet). Download it from the
