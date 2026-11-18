@@ -12,6 +12,22 @@ function obsTarget() {
 }
 const obs = new OBS(obsTarget());
 
+// Keyboard shortcuts (devices with a keyboard): stored on a key as "alt+lshift+KeyM": modifiers (shift, alt, ctrl,
+// cmd; "l"/"r" in front for one side only) and the key's physical code (KeyboardEvent.code). Not on the Pad itself.
+const HAS_KEYBOARD = !params.has("kiosk");
+const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform);
+const MOD_NAMES = { shift: "Shift", alt: IS_MAC ? "Option" : "Alt", ctrl: "Ctrl", cmd: IS_MAC ? "Cmd" : "Win" };
+const MOD_SYMBOLS = { shift: "⇧", alt: IS_MAC ? "⌥" : "Alt+", ctrl: IS_MAC ? "⌃" : "Ctrl+", cmd: IS_MAC ? "⌘" : "Win+" };
+const KEY_NAMES = { Space: "Space", Enter: "Return", Escape: "Esc", Backspace: "Delete", Tab: "Tab", ArrowUp: "↑", ArrowDown: "↓",
+  ArrowLeft: "←", ArrowRight: "→", Minus: "-", Equal: "=", BracketLeft: "[", BracketRight: "]", Semicolon: ";", Quote: "'",
+  Backquote: "`", Backslash: "\\", Comma: ",", Period: ".", Slash: "/" };
+const keyName = (code) => KEY_NAMES[code] || code.replace(/^Key|^Digit/, "").replace(/^Numpad/, "Num ");
+const modBase = (m) => m.replace(/^[lr](?=shift|alt|ctrl|cmd)/, "");
+const modName = (m) => (m[0] === "l" && m !== modBase(m) ? "Left " : m[0] === "r" && m !== modBase(m) ? "Right " : "") + MOD_NAMES[modBase(m)];
+const hotkeyParts = (hk) => { const p = hk.split("+"); return { mods: p.slice(0, -1), key: p[p.length - 1] }; };
+const longName = (hk) => { const { mods, key } = hotkeyParts(hk); return [...mods.map(modName), keyName(key)].join(" + "); };
+const shortName = (hk) => { const { mods, key } = hotkeyParts(hk); return mods.map((m) => MOD_SYMBOLS[modBase(m)]).join("") + keyName(key); };
+
 const SWATCHES = ["#2b2d32", "#7a1430", "#1d5e36", "#23439e", "#56308f", "#9c4a16", "#0f6670", "#d8d9dc"];
 const $ = (id) => document.getElementById(id);
 let grid = $("grid"); // the visible page; a finished swipe swaps in the pre-drawn neighbour as the new one
@@ -122,6 +138,7 @@ function buttonEl(b) {
   const span = document.createElement("span");
   span.textContent = label;
   el.append(span);
+  if (b.hotkey && HAS_KEYBOARD) el.append(Object.assign(document.createElement("i"), { className: "kbd", textContent: shortName(b.hotkey) }));
   return el;
 }
 
@@ -622,6 +639,7 @@ function fillEditor() {
   options($("sceneSel"), lists.scenes, draft.scene);
   options($("muteSel"), lists.inputs, draft.mute);
   $("labelIn").value = draft.label || "";
+  showHotkey();
   buildPickers();
   markPickers();
   updatePreview();
@@ -842,6 +860,8 @@ $("delBtn").onclick = () => {
 // pages, else a new page) — drag it wherever it should live, e.g. a Mic key on every page.
 $("dupBtn").onclick = () => {
   buttons()[editIndex] = draft;
+  draft = { ...draft };
+  delete draft.hotkey; // one shortcut, one key
   $("editor").classList.remove("open");
   const order = [page, ...layout.pages.keys()].filter((p, i, a) => a.indexOf(p) === i);
   let at = order.find((p) => layout.pages[p].buttons.includes(null));
@@ -1204,6 +1224,125 @@ async function intro() {
 loadLayout().then(() => { render(); sync(); checkPlugs(); }).catch(() => toast("Couldn't load layout")).finally(intro);
 // Connect once the settings (which may name the OBS computer) have loaded. A new Pad with no OBS chosen
 // yet opens Menu → OBS so it can be set up on the touchscreen.
+// ---------- Keyboard shortcuts ----------
+// While Pad Deck is open and in front, a key's shortcut presses it (on any page). The modifiers held down are
+// tracked by side, so "Left Shift" can mean only the left one.
+
+const MOD_CODES = { ShiftLeft: "lshift", ShiftRight: "rshift", AltLeft: "lalt", AltRight: "ralt",
+  ControlLeft: "lctrl", ControlRight: "rctrl", MetaLeft: "lcmd", MetaRight: "rcmd" };
+const held = new Set();
+let recording = false;
+
+function heldMods(e) {
+  // A missed key-up (e.g. while another window had focus) shouldn't leave a modifier stuck.
+  // And one held since before Pad Deck had focus counts, side unknown ("?shift").
+  const mods = new Set();
+  for (const [flag, base] of [[e.shiftKey, "shift"], [e.altKey, "alt"], [e.ctrlKey, "ctrl"], [e.metaKey, "cmd"]]) {
+    if (!flag) { held.delete("l" + base); held.delete("r" + base); continue; }
+    const sides = ["l" + base, "r" + base].filter((x) => held.has(x));
+    (sides.length ? sides : ["?" + base]).forEach((x) => mods.add(x));
+  }
+  return mods;
+}
+
+function matches(hk, code, mods) {
+  const { mods: want, key } = hotkeyParts(hk);
+  if (key !== code) return false;
+  const used = new Set();
+  for (const m of want) {
+    const sides = m === modBase(m) ? ["l" + m, "r" + m, "?" + m] : [m, "?" + modBase(m)];
+    const hit = sides.filter((x) => mods.has(x));
+    if (!hit.length) return false;
+    hit.forEach((x) => used.add(x));
+  }
+  return [...mods].every((x) => used.has(x)); // no extra modifiers held
+}
+
+function findHotkey(code, mods) {
+  for (const [p, pg] of layout.pages.entries()) {
+    const i = pg.buttons.findIndex((b) => b?.hotkey && matches(b.hotkey, code, mods));
+    if (i >= 0) return { p, i, b: pg.buttons[i] };
+  }
+  return null;
+}
+
+addEventListener("keydown", (e) => {
+  if (MOD_CODES[e.code]) { held.add(MOD_CODES[e.code]); if (!recording) return; }
+  const mods = heldMods(e);
+  if (recording && !$("editor").classList.contains("open")) { recording = false; $("hotkeyBtn").classList.remove("recording"); }
+  if (recording) return recordKey(e, mods);
+  if (!HAS_KEYBOARD || editing || e.repeat || $("editor").classList.contains("open") || $("menu").classList.contains("open")
+      || document.getElementById("pairBox") || e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+  const hit = findHotkey(e.code, mods);
+  if (!hit) return;
+  e.preventDefault();
+  Feedback.tap();
+  const slot = hit.p === page ? grid.querySelector(`.slot[data-i="${hit.i}"]`) : null;
+  slot?.classList.add("pressed");
+  press(hit.b);
+  setTimeout(() => { slot?.classList.remove("pressed"); Feedback.release(); }, 120);
+});
+addEventListener("keyup", (e) => { if (MOD_CODES[e.code]) held.delete(MOD_CODES[e.code]); });
+addEventListener("blur", () => held.clear());
+
+// The key editor's recorder: tap Record, press the combination. Each modifier can then be switched between
+// "either side" and the side that was pressed.
+function recordKey(e, mods) {
+  e.preventDefault();
+  e.stopPropagation();
+  if (MOD_CODES[e.code]) { $("hotkeyBtn").textContent = [...mods].map((m) => modName(m.replace("?", ""))).join(" + ") + " + …"; return; }
+  if (e.code === "Escape" && !mods.size) { stopRecording(); return; }
+  const order = ["ctrl", "alt", "shift", "cmd"];
+  const list = [...mods].map((m) => m.replace("?", "")).sort((a, b) => order.indexOf(modBase(a)) - order.indexOf(modBase(b)));
+  draft.hotkey = [...list, e.code].join("+");
+  stopRecording();
+}
+
+function stopRecording() {
+  recording = false;
+  $("hotkeyBtn").classList.remove("recording");
+  showHotkey();
+  updatePreview();
+}
+
+function showHotkey() {
+  $("hotkeyField").hidden = !HAS_KEYBOARD;
+  const hk = draft?.hotkey;
+  $("hotkeyBtn").textContent = recording ? "Press the keys…" : hk ? longName(hk) : "Record shortcut";
+  $("hotkeyClear").hidden = !hk || recording;
+  const mods = $("hotkeyMods");
+  mods.replaceChildren();
+  let hint = "Works on a computer or tablet with a keyboard, while Pad Deck is open and in front.";
+  if (hk && !recording) {
+    const { mods: list, key } = hotkeyParts(hk);
+    // Tap a modifier to switch it between "either side" and one side.
+    list.forEach((m, n) => {
+      const b = Object.assign(document.createElement("button"), { type: "button", className: "barbtn",
+        textContent: m === modBase(m) ? `${MOD_NAMES[m]}: either side` : `${modName(m)} only` });
+      b.onclick = () => {
+        const base = modBase(m);
+        list[n] = m === base ? "r" + base : m[0] === "l" ? base : "l" + base;   // left → either → right → left
+        draft.hotkey = [...list, key].join("+");
+        showHotkey(); updatePreview();
+      };
+      mods.append(b);
+    });
+    const other = layout.pages.flatMap((pg, p) => pg.buttons.map((b, i) => ({ b, p, i })))
+      .find(({ b, p, i }) => b?.hotkey === hk && !(p === page && i === editIndex));
+    if (list.length) hint = "Tap Left/Right/either to choose which side's key counts. " + hint;
+    if (other) hint = `“${other.b.label || "Another key"}” already uses this shortcut; the first one found wins.`;
+  }
+  $("hotkeyHint").textContent = hint;
+}
+
+$("hotkeyBtn").onclick = () => {
+  recording = !recording;
+  held.clear();
+  $("hotkeyBtn").classList.toggle("recording", recording);
+  showHotkey();
+};
+$("hotkeyClear").onclick = () => { delete draft.hotkey; showHotkey(); updatePreview(); };
+
 Promise.all([Feedback.ready, Device.info]).then(() => {
   obs.configure(obsTarget());
   if (!obs.host && params.has("kiosk")) setTimeout(() => Menu.open("obs"), 3500);

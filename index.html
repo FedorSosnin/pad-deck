@@ -146,6 +146,15 @@
     box-shadow: inset 0 1px 0 rgba(255,255,255,.12), inset 0 -1px 0 rgba(0,0,0,.35), 0 0 0 var(--edge), 0 2px 4px rgba(0,0,0,.6); }
 
   /* Status LED in the key's corner */
+  /* Keyboard shortcut: the key editor's recorder, and a small reminder in the corner of the key. */
+  .hotkey-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; text-transform: none; letter-spacing: 0; }
+  #hotkeyBtn { min-width: 180px; font: 600 16px var(--font); text-transform: none; }
+  #hotkeyBtn.recording { background-color: #7a1430; color: #fff; }
+  #hotkeyMods { display: contents; }
+  #hotkeyMods button { font: 500 13px var(--font); text-transform: none; padding: 6px 10px; }
+  #hotkeyField .hint { text-transform: none; letter-spacing: 0; font: 500 13px var(--font); }
+  .btn .kbd { position: absolute !important; top: 9px; right: 11px; font: 600 11px var(--font); letter-spacing: .03em;
+    opacity: .55; pointer-events: none; text-transform: none; }
   .led { position: absolute !important; top: 12px; left: 13px; width: 10px; height: 10px; border-radius: 50%;
     background: #101112; box-shadow: inset 0 1px 1px rgba(0,0,0,.8), 0 1px 0 rgba(255,255,255,.12); }
   .btn.live .led { background: var(--led-green); box-shadow: 0 0 6px 1px var(--led-green), 0 0 16px 2px rgba(77,255,134,.45), inset 0 -1px 1px rgba(0,0,0,.25); }
@@ -338,6 +347,11 @@
       <label class="field" id="muteField">Audio input <select id="muteSel"></select></label>
       <div id="actFields"></div>
       <label class="field">Label <input id="labelIn" class="input" type="text" autocomplete="off" data-osk></label>
+      <div class="field" id="hotkeyField">Keyboard shortcut
+        <div class="hotkey-row"><button id="hotkeyBtn" class="barbtn" type="button"></button><span id="hotkeyMods"></span>
+          <button id="hotkeyClear" class="barbtn" type="button">Clear</button></div>
+        <div class="hint" id="hotkeyHint"></div>
+      </div>
       <label class="field">Color <div class="row" id="swatches"></div></label>
       <label class="field">Icon <div id="icons"></div></label>
     </div>

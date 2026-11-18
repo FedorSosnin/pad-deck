@@ -16,6 +16,8 @@ It also runs on the smaller **Creality Nebula Pad** ([Pad Deck Lite](#creality-n
   computer (with the [Pad Deck Helper](#pad-deck-helper)), switch a smart plug, or send any web request.
 - **No Pad needed:** the [Pad Deck Helper](#pad-deck-on-a-phone-or-tablet) turns any phone, tablet or
   browser on your Wi-Fi into the same deck. Scan a QR code and add it to the home screen.
+- **Keyboard shortcuts:** on a computer or tablet with a keyboard, give any key a shortcut (like Alt + Left
+  Shift + M to mute the mic). Left and right Shift, Alt, Ctrl and Cmd can be told apart.
 - **Physical keycaps:** a dished face, a weighted edge, a satisfying press, a plastic "click" through the
   Pad's speaker on press and release, and an optional buzz from the vibration motor.
 - **Pages:** swipe up and down (the page follows your finger), or use the ▲/▼ rail. Swiping past the last
