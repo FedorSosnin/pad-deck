@@ -13,7 +13,8 @@ SWIFTC="$DEV/usr/bin/swiftc"; [ -x "$SWIFTC" ] || SWIFTC="$DEV/Toolchains/XcodeD
 SDK="$DEV/SDKs/MacOSX.sdk"; [ -d "$SDK" ] || SDK="$DEV/Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk"
 
 rm -rf "$APP" "$OUT/Pad-Deck-Helper-Mac.zip"
-mkdir -p "$APP/Contents/MacOS" "$OUT/build"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$OUT/build"
+cp helper/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 for arch in arm64 x86_64; do
   "$SWIFTC" -O -swift-version 5 -sdk "$SDK" -target "$arch-apple-macos13.0" \
     -o "$OUT/build/PadDeckHelper-$arch" helper/PadDeckHelper.swift
@@ -30,6 +31,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
   <key>CFBundleName</key><string>Pad Deck Helper</string>
   <key>CFBundleDisplayName</key><string>Pad Deck Helper</string>
   <key>CFBundleExecutable</key><string>PadDeckHelper</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>$VERSION</string>
   <key>CFBundleVersion</key><string>$VERSION</string>

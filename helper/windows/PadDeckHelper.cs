@@ -350,7 +350,6 @@ class Tray : ApplicationContext
         if (Settings.Get("Welcomed", "0") != "1")
         {
             Settings.Set("Welcomed", "1");
-            Settings.StartWithWindows = true;
             Welcome();
         }
     }
@@ -425,7 +424,7 @@ class Tray : ApplicationContext
     void Welcome()
     {
         var r = MessageBox.Show(
-            "Pad Deck Helper is running. It lives in the system tray (by the clock) and starts with Windows.\n\n" +
+            "Pad Deck Helper is running. It lives in the system tray (by the clock). To have it start with Windows, turn on Start with Windows in its menu.\n\n" +
             "On the Pad: Menu → Helper, enter this pairing code:\n\n      " + Settings.Code + "\n\n" +
             "and this PC's name: " + Environment.MachineName + "\n\n" +
             "If Windows asks whether to allow it on networks, allow Private networks.\n\nCopy the code now?",

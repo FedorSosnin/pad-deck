@@ -239,7 +239,6 @@ final class Menu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         startServer()
         if !defaults.bool(forKey: "welcomed") {
             defaults.set(true, forKey: "welcomed")
-            try? SMAppService.mainApp.register()                   // open at login, from the start
             welcome()
         }
     }
@@ -262,7 +261,7 @@ final class Menu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Pad Deck Helper is running"
-        alert.informativeText = "It lives in the menu bar and opens at login.\n\nOn the Pad: Menu → Helper, enter this "
+        alert.informativeText = "It lives in the menu bar. To have it open when you log in, turn on Open at Login in its menu.\n\nOn the Pad: Menu → Helper, enter this "
             + "pairing code:\n\n\(pairingCode)\n\nand this Mac's name: \(ProcessInfo.processInfo.hostName)"
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Copy Code")

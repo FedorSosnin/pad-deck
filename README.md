@@ -81,11 +81,11 @@ download it from the [latest release](https://github.com/FedorSosnin/pad-deck/re
 **Mac** (macOS 13 or later): unzip **Pad-Deck-Helper-Mac.zip** and drag **Pad Deck Helper** into Applications, then
 open it. It isn't notarized by Apple yet, so the first time macOS blocks it: open System Settings → Privacy &
 Security, scroll down and click **Open Anyway**. Its menu bar icon pauses it, copies the pairing code, turns Open
-at Login on or off, and for **Press keys** takes you to the Accessibility switch it needs.
+at Login on (it's off until you choose it), and for **Press keys** takes you to the Accessibility switch it needs.
 
 **Windows** (10 or 11): unzip **Pad-Deck-Helper-Windows.zip** and run **PadDeckHelper.exe**. It isn't signed, so
 Windows may say it protected your PC: click **More info → Run anyway**, and allow it on private networks when
-asked. It lives in the tray by the clock and starts with Windows. *Press keys* works with Ctrl, Shift, Alt and
+asked. It lives in the tray by the clock; turn on *Start with Windows* in its menu to have it start on its own. *Press keys* works with Ctrl, Shift, Alt and
 Win (cmd counts as Ctrl) plus media keys: `playpause`, `next`, `previous`, `mute`, `volumeup`, `volumedown`.
 
 Both show a pairing code when first opened. On the Pad, open ☰ → **Helper** and enter the code (and the computer's
