@@ -5,7 +5,7 @@
 
 GET  /api/layout              current layout (layout.json)
 PUT  /api/layout              save layout
-GET  /api/device              {"device": "pad7" | "nebula"}, so the editor can hide what this device lacks
+GET  /api/device              {"device": "pad7" | "nebula", "local", "paired"}, so the editor can hide what it lacks
 GET  /api/layouts             saved layouts: [{name, saved, pages, buttons}], newest first
 POST /api/layouts             {name} save the current layout under that name (replaces one with the same name)
 POST /api/layouts/load        {name} make a saved layout current (the one it replaces is kept as "Before last load")
@@ -23,6 +23,9 @@ POST /api/run                 {"type": ..., ...} run a key's non-OBS action: a w
 GET  /api/helper?what=ping|apps|shortcuts   ask the Pad Deck Helper (connection test, lists for the editor)
 POST /api/leds                set the Pad 7's top RGB LEDs, {"colors": ["#rrggbb", ...]}  (Pad only)
 
+Other devices on the network: once a Helper pairing code is set (Menu → Helper), every /api call from them needs
+it in an X-Pad-Deck-Code header (401 {"pair": true} otherwise). docs/server-api.md has the full contract.
+
 Pad-only (refused unless the request comes from the Pad itself):
 GET  /api/system              hostname, address, uptime, temperature
 POST /api/system/reboot|shutdown
@@ -33,6 +36,7 @@ GET  /api/term                WebSocket: a shell on the Pad (binary = keystrokes
 import base64
 import fcntl
 import hashlib
+import hmac
 import json
 import os
 import pty
@@ -693,6 +697,35 @@ class Handler(SimpleHTTPRequestHandler):
             except OSError:
                 pass
 
+    def is_local(self):
+        return self.client_address[0] in LOCAL
+
+    def code_ok(self):
+        """Other devices need the pairing code once one is set (the Helper's code, Menu → Helper)."""
+        if self.is_local():
+            return True
+        code = load_settings()["helperCode"]
+        return not code or hmac.compare_digest(self.headers.get("X-Pad-Deck-Code", "").encode(), code.encode())
+
+    def paired(self):
+        """For running keys from another device: a code must be set, and sent."""
+        if self.is_local() or (load_settings()["helperCode"] and self.code_ok()):
+            return True
+        self.send_json({"error": "To use these keys from another device, set the Helper's pairing code on the Pad "
+                                 "(Menu → Helper)"}, 403)
+        return False
+
+    def parse_request(self):
+        """Every /api call (except /api/device) from another device needs the pairing code, once one is set."""
+        if not super().parse_request():
+            return False
+        path = self.path.partition("?")[0]
+        if path.startswith("/api/") and path != "/api/device" and not self.code_ok():
+            self.close_connection = True                           # the body (if any) isn't read
+            self.send_json({"error": "Enter the pairing code", "pair": True}, 401)
+            return False
+        return True
+
     def local_only(self, admin=True):
         """Pad-only features. `admin` ones (Wi-Fi, system) are also open to the network on REMOTE_ADMIN devices."""
         if self.client_address[0] in LOCAL or (admin and REMOTE_ADMIN):
@@ -706,7 +739,7 @@ class Handler(SimpleHTTPRequestHandler):
             with open(LAYOUT) as f:
                 return self.send_json(json.load(f))
         if path == "/api/helper":
-            if not self.local_only():
+            if not self.paired():
                 return
             what = dict(re.findall(r"(\w+)=([^&]*)", query)).get("what", "ping")
             if what not in ("ping", "apps", "shortcuts"):
@@ -718,7 +751,7 @@ class Handler(SimpleHTTPRequestHandler):
         if path == "/api/plugs":                                  # Kasa plugs on the network, for the key editor
             return self.send_json({"plugs": kasa_find()})
         if path == "/api/device":
-            return self.send_json({"device": DEVICE})
+            return self.send_json({"device": DEVICE, "local": self.is_local(), "paired": self.code_ok()})
         if path == "/api/layouts":
             return self.send_json(list_layouts())
         if path == "/api/icons":
@@ -777,10 +810,13 @@ class Handler(SimpleHTTPRequestHandler):
 
     def do_POST(self):
         if self.path == "/api/plugs/state":                       # [{brand, ip, outlet}] → [on?]: for key lights
-            body = self.json_body()
+            try:
+                body = json.loads(self.body())                     # a list, which json_body() doesn't take
+            except ValueError:
+                body = None
             return self.send_json({"states": plug_states(body if isinstance(body, list) else [])})
         if self.path == "/api/run":
-            if not self.local_only():
+            if not self.paired():
                 return
             try:
                 return self.send_json({"ok": True, "message": run_action(self.json_body() or {})})
@@ -805,7 +841,8 @@ class Handler(SimpleHTTPRequestHandler):
             write_atomic(os.path.join(ICONS, name), self.body())
             return self.send_json({"name": name})
         if self.path == "/api/buzz":
-            threading.Thread(target=buzz, daemon=True).start()
+            if self.is_local():                                    # a phone pressing keys doesn't buzz the Pad
+                threading.Thread(target=buzz, daemon=True).start()
             return self.send_json({"ok": True})
         if not self.path.startswith(("/api/wifi", "/api/system/", "/api/leds")):
             return self.send_error(404)

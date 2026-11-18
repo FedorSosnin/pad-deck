@@ -4,9 +4,10 @@ const [hostParam, portParam] = (params.get("obs") || "").split(":");
 function obsTarget() {
   const s = Feedback.settings;
   return {
-    host: hostParam || s.obsHost || DECK.obs.host,
-    port: portParam || (s.obsHost ? s.obsPort : DECK.obs.port),
-    password: params.get("pw") ?? (s.obsHost ? s.obsPassword : DECK.obs.password),
+    // Served by the Helper: OBS is most likely on that same computer.
+    host: hostParam || s.obsHost || DECK.obs.host || (Device.current.device === "helper" ? location.hostname : ""),
+    port: portParam || s.obsPort || DECK.obs.port,
+    password: params.get("pw") ?? (s.obsPassword || DECK.obs.password),
   };
 }
 const obs = new OBS(obsTarget());
@@ -218,6 +219,9 @@ function press(b) {
     else if (state.plugs[plugKey(a)] !== undefined) state.plugs[plugKey(a)] = !state.plugs[plugKey(a)];
     render(); // optimistic; the next check confirms
     runAction(a).catch((e) => toast(e.message)).finally(() => setTimeout(checkPlugs, 300));
+  } else if (a.type === "url" && a.where === "here") {
+    const url = String(a.url || "").trim();
+    if (url) window.open(/^[a-z][a-z0-9+.-]*:/i.test(url) ? url : "https://" + url, "_blank");
   } else runAction(a).then((msg) => toast(msg), (e) => toast(e.message));
 }
 
@@ -245,7 +249,7 @@ setInterval(() => { if (!document.hidden) checkPlugs(); }, 4000);
 async function runAction(a) {
   const res = await fetch("api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(a) });
   const body = await res.json().catch(() => ({}));
-  if (res.status === 403) throw new Error("Only the Pad itself can run this");
+  if (res.status === 401) throw new Error("Enter the pairing code first");
   if (!res.ok) throw new Error(body.error || res.statusText);
   return body.message || "Done";
 }
@@ -749,6 +753,11 @@ function fillActionFields(kind) {
       hint("The key's light is green while the source is showing."));
   } else if (kind === "url") {
     kids.push(text("Web address", "url", "e.g. youtube.com/studio", { inputMode: "url" }));
+    if (!params.has("kiosk")) {
+      const where = pick("Opens on", "where", [["", "The computer (Pad Deck Helper)"], ["here", "This screen"]]);
+      where.querySelector("select").onchange = (e) => { set("where", e.target.value); fillActionFields(kind); };
+      kids.push(where);
+    }
   } else if (kind === "app") {
     kids.push(...fromHelper("App", "app", "apps"));
   } else if (kind === "shortcut") {
@@ -791,7 +800,7 @@ function fillActionFields(kind) {
     kids.push(pick("Method", "method", [["GET", "GET"], ["POST", "POST"], ["PUT", "PUT"]]),
       text("Address", "url", "http://…", { inputMode: "url" }),
       text("Body (optional)", "body", '{"entity_id": "light.desk"}'),
-      hint("Sent from the Pad: webhooks, Home Assistant, Companion, any device with a web API."));
+      hint(`Sent from the ${Device.current.device === "helper" ? "computer running the Helper" : "Pad"}: webhooks, Home Assistant, Companion, any device with a web API.`));
   }
   if (!OBS_KINDS.has(kind)) {
     const out = hint("");
@@ -801,7 +810,8 @@ function fillActionFields(kind) {
       runAction(draft.action).then((m) => { out.textContent = m; }, (e) => { out.className = "hint err"; out.textContent = e.message; });
     };
     kids.push(el("div", { className: "test-row" }, test, out));
-    if (["url", "app", "shortcut", "hotkey"].includes(kind) && !Feedback.settings.helperCode) {
+    if (["url", "app", "shortcut", "hotkey"].includes(kind) && !(kind === "url" && a.where === "here")
+        && !Feedback.settings.helperCode && Device.current.device !== "helper") {
       kids.push(hint("Needs the Pad Deck Helper on your computer: see Menu → Helper.", true));
     }
   }
@@ -1194,7 +1204,7 @@ async function intro() {
 loadLayout().then(() => { render(); sync(); checkPlugs(); }).catch(() => toast("Couldn't load layout")).finally(intro);
 // Connect once the settings (which may name the OBS computer) have loaded. A new Pad with no OBS chosen
 // yet opens Menu → OBS so it can be set up on the touchscreen.
-Feedback.ready.then(() => {
+Promise.all([Feedback.ready, Device.info]).then(() => {
   obs.configure(obsTarget());
   if (!obs.host && params.has("kiosk")) setTimeout(() => Menu.open("obs"), 3500);
 });

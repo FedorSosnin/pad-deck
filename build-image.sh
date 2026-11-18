@@ -56,7 +56,7 @@ fi
 # --- What goes on the card's boot partition, under /pad-deck
 P="$WORK/pad-deck"
 mkdir -p "$P/app" "$P/setup"
-rsync -a --exclude .git --exclude .gitignore --exclude .claude --exclude docs --exclude setup --exclude layouts \
+rsync -a --exclude .git --exclude .gitignore --exclude .claude --exclude docs --exclude setup --exclude helper --exclude tools --exclude dist --exclude layouts \
   --exclude layout.json --exclude settings.json --exclude 'build-image.sh' \
   --exclude 'README.md' --exclude '__pycache__' --exclude '*.img' ./ "$P/app/"
 # Uploaded icons stay on your own Pad; the image ships the generated library only.

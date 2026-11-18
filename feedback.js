@@ -71,7 +71,10 @@ const Feedback = (() => {
     get settings() { return settings; },
     tap() {
       if (settings.sound) try { key(1, 1); } catch {}
-      if (settings.vibrate) fetch("api/buzz", { method: "POST" }).catch(() => {});
+      if (!settings.vibrate) return;
+      // The Pad 7's own motor; on phones that can (Android), the phone's.
+      if (Device.current.device === "pad7" && Device.current.local) fetch("api/buzz", { method: "POST" }).catch(() => {});
+      else navigator.vibrate?.(12);
     },
     // The quieter, slightly higher click of the key coming back up.
     release() {

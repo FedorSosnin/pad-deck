@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pad Deck on a Phone or Tablet</title>
+<link rel="icon" href="pwa/icon-192.png">
+<!-- Opened from the Helper's menu, on the computer: a QR code that opens the deck (already paired) on a phone or
+     tablet, and copying a layout over from a Pad. Answers only on the computer itself (GET /api/connect). -->
+<style>
+  @font-face { font-family: "Barlow SC"; font-weight: 500; src: url(fonts/barlow-semi-condensed-500.woff2) format("woff2"); }
+  @font-face { font-family: "Barlow SC"; font-weight: 600; src: url(fonts/barlow-semi-condensed-600.woff2) format("woff2"); }
+  :root { --bg: #121316; --card: #1c1d21; --text: #e8e9eb; --muted: #a3a6ad; --accent: #3fbf6e; --font: "Barlow SC", system-ui, sans-serif; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body { margin: 0; min-height: 100vh; background: var(--bg) url(carbon.jpg); color: var(--text); font: 500 17px/1.45 var(--font);
+    display: grid; place-items: center; padding: 32px 16px; }
+  main { width: min(760px, 100%); display: grid; gap: 18px; }
+  h1 { margin: 0; font-size: 32px; font-weight: 600; }
+  h2 { margin: 0 0 8px; font-size: 21px; font-weight: 600; }
+  p { margin: 0 0 10px; color: var(--muted); }
+  .card { background: var(--card); border-radius: 18px; padding: 24px;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.08), 0 6px 0 #0c0d0f, 0 12px 30px rgba(0,0,0,.5); }
+  .pair { display: grid; grid-template-columns: auto 1fr; gap: 26px; align-items: center; }
+  #qr { background: #fff; padding: 12px; border-radius: 14px; width: 232px; height: 232px; }
+  #qr img, #qr svg { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+  .addr { font: 600 20px var(--font); color: #fff; word-break: break-all; }
+  .code { font: 600 30px var(--font); letter-spacing: .2em; color: #fff; }
+  ol { margin: 8px 0 0; padding-left: 20px; color: var(--muted); }
+  li { margin-bottom: 4px; }
+  select, input { font: 500 17px var(--font); padding: 10px 12px; border-radius: 10px; border: 2px solid #33353b; background: #101113; color: #fff; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .row input { flex: 1; min-width: 200px; }
+  button, a.btn { font: 600 17px var(--font); padding: 11px 18px; border: 0; border-radius: 11px; color: #fff; text-decoration: none; cursor: pointer;
+    background: #1f7a45; box-shadow: inset 0 1px 0 rgba(255,255,255,.2), 0 3px 0 #0e3b21; }
+  a.btn.grey { background: #2b2d32; box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 3px 0 #141518; }
+  #importMsg { min-height: 1.4em; margin-top: 10px; }
+  .err { color: #ff6b7d; }
+  @media (max-width: 600px) { .pair { grid-template-columns: 1fr; justify-items: center; text-align: center; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pad Deck on a phone or tablet</h1>
+  <div class="card" id="pairCard">
+    <div class="pair">
+      <div id="qr"></div>
+      <div>
+        <h2>Scan with the phone or tablet's camera</h2>
+        <p>It opens the deck already paired. It has to be on the same Wi-Fi as this computer.</p>
+        <div class="row" id="addrRow" hidden><span>Network:</span><select id="addrSel"></select></div>
+        <p style="margin-top: 12px">Or type this address in its browser:</p>
+        <div class="addr" id="addr">…</div>
+        <p style="margin: 12px 0 0">and enter the pairing code when it asks:</p>
+        <div class="code" id="code">…</div>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Make it feel like an app</h2>
+    <ol>
+      <li><b>iPhone or iPad:</b> in Safari, tap Share → Add to Home Screen. It then opens full screen, like an app.</li>
+      <li><b>Android:</b> in Chrome, tap ⋮ → Add to Home screen (or Install app).</li>
+      <li>Turn the device sideways. The screen stays on while the deck is open.</li>
+    </ol>
+  </div>
+  <div class="card">
+    <h2>Copy your layout from a Pad</h2>
+    <p>Brings over the keys, pages and any icons you added. The layout here now is kept as “Before last load”.</p>
+    <div class="row"><input id="padHost" placeholder="The Pad's address, e.g. pad7.local or 192.168.1.30" autocomplete="off" spellcheck="false">
+      <button id="importBtn">Copy layout</button></div>
+    <div id="importMsg"></div>
+  </div>
+  <div class="row"><a class="btn grey" href="./">Open the deck on this computer</a></div>
+</main>
+<script src="vendor/qrcode.js"></script>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let info = null;
+  function show(addr) {
+    const url = `http://${addr}:${info.port}/`;
+    $("addr").textContent = url;
+    const qr = qrcode(0, "M");
+    qr.addData(`${url}#code=${info.code}`);
+    qr.make();
+    $("qr").innerHTML = qr.createSvgTag({ cellSize: 6, margin: 0, scalable: true });
+  }
+  fetch("api/connect").then((r) => r.json().then((j) => [r.status, j])).then(([status, j]) => {
+    if (status !== 200) throw new Error(status === 403 ? "Open this page on the computer running Pad Deck Helper." : j.error || "Something went wrong");
+    info = j;
+    $("code").textContent = j.code;
+    const addrs = j.addresses.length ? j.addresses : [j.hostname];
+    if (addrs.length > 1) {
+      $("addrRow").hidden = false;
+      $("addrSel").append(...addrs.map((a) => new Option(a, a)));
+      $("addrSel").onchange = (e) => show(e.target.value);
+    }
+    show(addrs[0]);
+  }).catch((e) => { $("pairCard").innerHTML = `<h2>Can't show the code</h2><p>${e.message}</p>`; });
+
+  $("importBtn").onclick = async () => {
+    const msg = $("importMsg");
+    msg.className = ""; msg.textContent = "Copying…";
+    try {
+      const r = await fetch("api/layouts/import", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ host: $("padHost").value }) });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "Couldn't copy it");
+      msg.textContent = `Done. ${j.icons ? `${j.icons} icon${j.icons === 1 ? "" : "s"} copied too. ` : ""}Open the deck to see it.`;
+    } catch (e) { msg.className = "err"; msg.textContent = e.message; }
+  };
+</script>
+</body>
+</html>

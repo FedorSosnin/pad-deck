@@ -1,10 +1,12 @@
 // Pad Deck Helper for Windows: a system tray app that lets Pad Deck keys do things on this PC: open a website
-// or an app, press a key combination (including media keys). The Pad sends it requests over the network; each
+// or an app, press a key combination (including media keys). It also serves the whole deck to any browser on the
+// network on port 8099 (DeckServer.cs), so a phone or tablet can be a Pad Deck. Every request from another device
 // must carry the pairing code shown in the tray menu. Same protocol as the Mac app (../PadDeckHelper.swift).
 //
 // Plain C# 5 for the .NET Framework 4 that comes with Windows 10 and 11, so it builds with the compiler that's
 // already on every Windows PC (see build.cmd) and needs nothing installed to run.
 //
+// Port 8098, for a Pad:
 // GET  /ping        is the helper there, and is the pairing code right?
 // GET  /apps        Start menu app names (for the key editor)
 // GET  /shortcuts   (Mac only: always empty here)
@@ -16,18 +18,14 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.IO;
 using System.Linq;
-using System.Net;
-using System.Net.Sockets;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading;
-using System.Web.Script.Serialization;
 using System.Windows.Forms;
 using Microsoft.Win32;
 
 [assembly: System.Reflection.AssemblyTitle("Pad Deck Helper")]
 [assembly: System.Reflection.AssemblyProduct("Pad Deck Helper")]
-[assembly: System.Reflection.AssemblyVersion("1.0.0.0")]
+[assembly: System.Reflection.AssemblyVersion("1.3.0.0")]
 
 class Failure : Exception { public Failure(string m) : base(m) { } }
 
@@ -204,121 +202,43 @@ static class Actions
     }
 }
 
-// ---------- Web server (a TcpListener: HttpListener would need admin rights to listen on the network) ----------
+// ---------- Keys sent from a Pad (port 8098) ----------
 
 static class Server
 {
-    const int Port = 8098;
-    static readonly JavaScriptSerializer Json = new JavaScriptSerializer();
     public static event Action Ran;
+
+    public static void NotifyRan() { var r = Ran; if (r != null) r(); }
 
     public static void Start()
     {
-        var t = new Thread(() =>
-        {
-            while (true)
-            {
-                try
-                {
-                    var l = new TcpListener(IPAddress.Any, Port);
-                    l.Start();
-                    while (true)
-                    {
-                        var c = l.AcceptTcpClient();
-                        ThreadPool.QueueUserWorkItem(_ => Serve(c));
-                    }
-                }
-                catch (Exception) { Thread.Sleep(3000); }        // e.g. the port is still busy: try again
-            }
-        });
-        t.IsBackground = true;
-        t.Start();
+        Http.Listen(8098, 1000000, Handle);
+        Deck.Prepare();
+        Http.Listen(Deck.Port, 8000000, Deck.Handle);
     }
 
-    static void Serve(TcpClient c)
+    static Resp Handle(Req r)
     {
-        using (c)
+        if (!Http.SameCode(r.Header("X-Pad-Deck-Code"), Settings.Code))
+            return Http.JsonResp(new Dictionary<string, object> { { "error", "Wrong pairing code" } }, 401);
+        var key = r.Method + " " + r.Path;
+        if (key == "GET /ping")
+            return Http.JsonResp(new Dictionary<string, object> {
+                { "ok", true }, { "computer", Environment.MachineName }, { "mac", false }, { "windows", true }, { "paused", Settings.Paused } });
+        if (key == "GET /apps") return Http.JsonResp(new Dictionary<string, object> { { "apps", Actions.Apps().Keys.ToList() } });
+        if (key == "GET /shortcuts") return Http.JsonResp(new Dictionary<string, object> { { "shortcuts", new string[0] } });
+        if (key == "POST /run")
         {
+            if (Settings.Paused) return Http.JsonResp(new Dictionary<string, object> { { "error", "Pad Deck Helper is paused (tray icon on the PC)" } }, 503);
             try
             {
-                c.ReceiveTimeout = 5000;
-                var s = c.GetStream();
-                var buf = new List<byte>();
-                var chunk = new byte[8192];
-                int end = -1, length = 0;
-                while (true)
-                {
-                    var n = s.Read(chunk, 0, chunk.Length);
-                    if (n <= 0) return;
-                    buf.AddRange(chunk.Take(n));
-                    if (buf.Count > 1000000) return;
-                    if (end < 0)
-                    {
-                        for (var i = 3; i < buf.Count; i++)
-                            if (buf[i - 3] == 13 && buf[i - 2] == 10 && buf[i - 1] == 13 && buf[i] == 10) { end = i + 1; break; }
-                        if (end < 0) continue;
-                        var head = Encoding.ASCII.GetString(buf.Take(end).ToArray());
-                        foreach (var line in head.Split(new[] { "\r\n" }, StringSplitOptions.None))
-                            if (line.StartsWith("content-length:", StringComparison.OrdinalIgnoreCase)) int.TryParse(line.Substring(15).Trim(), out length);
-                    }
-                    if (buf.Count - end >= length) break;
-                }
-                var headText = Encoding.ASCII.GetString(buf.Take(end).ToArray());
-                var lines = headText.Split(new[] { "\r\n" }, StringSplitOptions.None);
-                var first = lines[0].Split(' ');
-                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var line in lines.Skip(1))
-                {
-                    var i = line.IndexOf(':');
-                    if (i > 0) headers[line.Substring(0, i).Trim()] = line.Substring(i + 1).Trim();
-                }
-                var body = Encoding.UTF8.GetString(buf.Skip(end).Take(length).ToArray());
-                int status;
-                var reply = Handle(first[0], first.Length > 1 ? first[1] : "/", headers, body, out status);
-                var data = Encoding.UTF8.GetBytes(Json.Serialize(reply));
-                var top = Encoding.ASCII.GetBytes("HTTP/1.1 " + status + " " + (status == 200 ? "OK" : "Error") +
-                    "\r\nContent-Type: application/json\r\nContent-Length: " + data.Length + "\r\nConnection: close\r\n\r\n");
-                s.Write(top, 0, top.Length);
-                s.Write(data, 0, data.Length);
+                var msg = Actions.Run(r.Json as Dictionary<string, object> ?? new Dictionary<string, object>());
+                NotifyRan();
+                return Http.JsonResp(new Dictionary<string, object> { { "ok", true }, { "message", msg } });
             }
-            catch (Exception) { }
+            catch (Exception e) { return Http.JsonResp(new Dictionary<string, object> { { "error", e.Message } }, 400); }
         }
-    }
-
-    static bool SameCode(string given)
-    {
-        var a = Encoding.UTF8.GetBytes(given ?? "");
-        var b = Encoding.UTF8.GetBytes(Settings.Code);
-        var diff = a.Length ^ b.Length;
-        for (var i = 0; i < b.Length; i++) diff |= b[i] ^ (i < a.Length ? a[i] : 0);
-        return diff == 0;
-    }
-
-    static object Handle(string method, string path, Dictionary<string, string> headers, string body, out int status)
-    {
-        string code;
-        headers.TryGetValue("X-Pad-Deck-Code", out code);
-        status = 200;
-        if (!SameCode(code)) { status = 401; return new { error = "Wrong pairing code" }; }
-        if (method == "GET" && path == "/ping")
-            return new { ok = true, computer = Environment.MachineName, mac = false, windows = true, paused = Settings.Paused };
-        if (method == "GET" && path == "/apps") return new { apps = Actions.Apps().Keys.ToList() };
-        if (method == "GET" && path == "/shortcuts") return new { shortcuts = new string[0] };
-        if (method == "POST" && path == "/run")
-        {
-            if (Settings.Paused) { status = 503; return new { error = "Pad Deck Helper is paused (tray icon on the PC)" }; }
-            try
-            {
-                var a = Json.Deserialize<Dictionary<string, object>>(body.Length > 0 ? body : "{}") ?? new Dictionary<string, object>();
-                var msg = Actions.Run(a);
-                if (Ran != null) Ran();
-                return new { ok = true, message = msg };
-            }
-            catch (Failure e) { status = 400; return new { error = e.Message }; }
-            catch (Exception e) { status = 400; return new { error = e.Message }; }
-        }
-        status = 404;
-        return new { error = "Not found" };
+        return Http.JsonResp(new Dictionary<string, object> { { "error", "Not found" } }, 404);
     }
 }
 
@@ -413,6 +333,9 @@ class Tray : ApplicationContext
         m.Items.Add(new ToolStripMenuItem("Pad Deck Helper: " + (Settings.Paused ? "Paused" : "On")) { Enabled = false });
         m.Items.Add("Pairing code: " + Settings.Code + "  (Copy)", null, (s, e) => Clipboard.SetText(Settings.Code));
         m.Items.Add(new ToolStripSeparator());
+        m.Items.Add("Open Pad Deck", null, (s, e) => Open("http://127.0.0.1:" + Deck.Port + "/"));
+        m.Items.Add("Use on a phone or tablet…", null, (s, e) => Open("http://127.0.0.1:" + Deck.Port + "/connect.html"));
+        m.Items.Add(new ToolStripSeparator());
         m.Items.Add(Settings.Paused ? "Resume" : "Pause", null, (s, e) => { Settings.Paused = !Settings.Paused; UpdateIcon(); });
         var start = new ToolStripMenuItem("Start with Windows") { Checked = Settings.StartWithWindows };
         start.Click += (s, e) => { Settings.StartWithWindows = !Settings.StartWithWindows; };
@@ -421,12 +344,18 @@ class Tray : ApplicationContext
         m.Items.Add("Quit Pad Deck Helper", null, (s, e) => { icon.Visible = false; Environment.Exit(0); });
     }
 
+    static void Open(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch (Exception) { }
+    }
+
     void Welcome()
     {
         var r = MessageBox.Show(
             "Pad Deck Helper is running. It lives in the system tray (by the clock). To have it start with Windows, turn on Start with Windows in its menu.\n\n" +
-            "On the Pad: Menu → Helper, enter this pairing code:\n\n      " + Settings.Code + "\n\n" +
-            "and this PC's name: " + Environment.MachineName + "\n\n" +
+            "Pairing code:   " + Settings.Code + "\n\n" +
+            "On a Pad: Menu → Helper, enter the code and this PC's name (" + Environment.MachineName + ").\n\n" +
+            "No Pad? Use a phone or tablet: “Use on a phone or tablet…” in the tray menu.\n\n" +
             "If Windows asks whether to allow it on networks, allow Private networks.\n\nCopy the code now?",
             "Pad Deck Helper", MessageBoxButtons.YesNo, MessageBoxIcon.Information);
         if (r == DialogResult.Yes) Clipboard.SetText(Settings.Code);

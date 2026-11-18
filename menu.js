@@ -34,7 +34,7 @@ const Menu = (() => {
   const api = async (path, opts = {}) => {
     const res = await fetch(`api/${path}`, { headers: { "Content-Type": "application/json" }, ...opts });
     const body = await res.json().catch(() => ({}));
-    if (res.status === 403) throw new Error("Only available on the Pad itself");
+    if (res.status === 403) throw new Error(body.error || "Only available on the Pad itself");
     if (!res.ok) throw new Error(body.error || res.statusText);
     return body;
   };
@@ -59,15 +59,19 @@ const Menu = (() => {
 
   // On the Nebula (Pad Deck Lite) the screen has its own sound switch, there's no vibration motor, LEDs or
   // browser on the device, and the terminal only works on the device's own screen: hide those.
+  // Served by the Helper (any browser): no Pad hardware, and the Helper is the server itself.
+  // Another device looking at a Pad 7: Wi-Fi, terminal and system only answer the Pad's own screen.
   let device = "pad7";
-  fetch("api/device").then((r) => r.json()).then(({ device: d }) => {
+  Device.info.then(({ device: d, local }) => {
     device = d;
-    if (device !== "nebula") return;
-    for (const id of ["sound", "terminal"]) {
+    const hide = d === "nebula" ? ["sound", "terminal"]
+      : d === "helper" ? ["system", "wifi", "terminal", "helper"]
+      : !local ? ["system", "wifi", "terminal"] : [];
+    for (const id of hide) {
       SECTIONS.splice(SECTIONS.findIndex((s) => s.id === id), 1);
       links.querySelector(`[data-id="${id}"]`)?.remove();
     }
-  }).catch(() => {});
+  });
 
   function open(id = current?.id || SECTIONS[0].id) {
     root.classList.add("open");
@@ -204,6 +208,7 @@ const Menu = (() => {
 
   function renderSound(el) {
     const s = Feedback.settings;
+    const onPad = device === "pad7" && Device.current.local;
     const toggle = (label, hint, key) => {
       const sw = h("button", { className: `switch${s[key] ? " on" : ""}` }, h("i"));
       sw.onclick = async () => { sw.classList.toggle("on"); await Feedback.save({ [key]: sw.classList.contains("on") }); };
@@ -218,9 +223,10 @@ const Menu = (() => {
     const notched = h("div", { className: "notched" }, vol,
       h("div", { className: "ticks" }, ...Array.from({ length: 11 }, (_, i) => h("span", { textContent: i }))));
     el.append(
-      toggle("Click sound", "Plays a key click through the Pad's speaker on every press.", "sound"),
+      toggle("Click sound", `Plays a key click through ${onPad ? "the Pad's speaker" : "this device's speaker"} on every press.`, "sound"),
       h("div", { className: "card setting" }, h("div", { className: "big", textContent: "Click volume" }), notched),
-      toggle("Vibration", "Short buzz from the Pad's vibration motor on every press.", "vibrate"),
+      onPad ? toggle("Vibration", "Short buzz from the Pad's vibration motor on every press.", "vibrate")
+        : "vibrate" in navigator ? toggle("Vibration", "Short buzz on every press, on phones that can.", "vibrate") : null,
     );
   }
 
@@ -233,7 +239,8 @@ const Menu = (() => {
       input.dataset.osk = "";
       return [h("label", { className: "field", textContent: label }, input), input];
     };
-    const [hostField, host] = field("Computer running OBS", { type: "text", value: s.obsHost || obs.host, placeholder: "e.g. My-Mac.local or 192.168.1.20" });
+    const [hostField, host] = field("Computer running OBS", { type: "text", value: s.obsHost || (device === "helper" ? "" : obs.host),
+      placeholder: device === "helper" ? `This computer (${location.hostname})` : "e.g. My-Mac.local or 192.168.1.20" });
     const [portField, port] = field("Port", { type: "text", value: String(s.obsPort || 4455), inputMode: "numeric" });
     const [pwField, pw] = field("Password (only if authentication is on in OBS)", { type: "password", value: s.obsPassword || "" });
     const status = h("div", { className: "hint" });

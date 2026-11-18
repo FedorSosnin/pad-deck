@@ -15,9 +15,16 @@ SDK="$DEV/SDKs/MacOSX.sdk"; [ -d "$SDK" ] || SDK="$DEV/Platforms/MacOSX.platform
 rm -rf "$APP" "$OUT/Pad-Deck-Helper-Mac.zip"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$OUT/build"
 cp helper/icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+# The web app, served to browsers on port 8099 (only the icons that ship with Pad Deck: deck-*.svg).
+mkdir -p "$APP/Contents/Resources/web"
+grep -v '^#' helper/web-files.txt | while read -r f; do
+  [ -n "$f" ] || continue
+  if [ "$f" = icons ]; then mkdir -p "$APP/Contents/Resources/web/icons"; cp icons/deck-*.svg "$APP/Contents/Resources/web/icons/"
+  else cp -R "$f" "$APP/Contents/Resources/web/"; fi
+done
 for arch in arm64 x86_64; do
   "$SWIFTC" -O -swift-version 5 -sdk "$SDK" -target "$arch-apple-macos13.0" \
-    -o "$OUT/build/PadDeckHelper-$arch" helper/PadDeckHelper.swift
+    -o "$OUT/build/PadDeckHelper-$arch" helper/*.swift
 done
 lipo -create -output "$APP/Contents/MacOS/PadDeckHelper" "$OUT/build/PadDeckHelper-arm64" "$OUT/build/PadDeckHelper-x86_64"
 rm -rf "$OUT/build"

@@ -46,7 +46,7 @@ def add_wifi(ssid, password, connect=False):
 SOURCE = os.environ.get("PAD_DECK_TARBALL", "https://github.com/FedorSosnin/pad-deck/archive/refs/heads/main.tar.gz")
 D = "/usr/data/pad-deck"
 # Not part of the app on the Nebula (or yours to keep): never copied over.
-SKIP = {".git", ".github", ".gitignore", "docs", "setup", "nebula", "layouts", "layout.json", "settings.json",
+SKIP = {".git", ".github", ".gitignore", "docs", "setup", "nebula", "tools", "dist", "layouts", "layout.json", "settings.json",
         "build-image.sh", "README.md", "helper"}
 
 print("Downloading Pad Deck…", flush=True)

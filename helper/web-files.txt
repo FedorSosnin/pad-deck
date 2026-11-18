@@ -1,0 +1,20 @@
+# The web app files the Helper bundles and serves (build-app.sh and windows/build.cmd read this list).
+index.html
+connect.html
+app.js
+awake.js
+config.js
+feedback.js
+keyboard.js
+menu.js
+obs.js
+pair.js
+keyboard.css
+menu.css
+carbon.jpg
+noise.png
+fonts
+icons
+layouts
+pwa
+vendor

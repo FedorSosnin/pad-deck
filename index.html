@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
 <title>Pad Deck</title>
+<link rel="manifest" href="pwa/manifest.webmanifest">
+<link rel="apple-touch-icon" href="pwa/apple-touch-icon.png">
+<link rel="icon" href="pwa/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pad Deck">
+<meta name="theme-color" content="#121316">
 <link rel="preload" href="fonts/yellowtail-badge.woff2" as="font" type="font/woff2" crossorigin>
 <style>
   @font-face { font-family: "Barlow SC"; font-weight: 500; src: url(fonts/barlow-semi-condensed-500.woff2) format("woff2"); }
@@ -361,6 +369,7 @@
 <div id="menu" class="scrim"></div>
 <div id="toast"></div>
 
+<script src="pair.js"></script>
 <script src="config.js"></script>
 <script src="obs.js"></script>
 <script src="feedback.js"></script>
@@ -369,5 +378,6 @@
 <script src="vendor/xterm.js"></script>
 <script src="vendor/addon-fit.js"></script>
 <script src="menu.js"></script>
+<script src="awake.js"></script>
 </body>
 </html>

@@ -17,3 +17,13 @@ done
 magick "$TMP"/win-{16,24,32,48,64,256}.png PadDeckHelper.ico
 rm -rf "$TMP"
 echo "Made AppIcon.icns and PadDeckHelper.ico"
+
+# Home screen icons for the web app (phones and tablets): full-bleed squares, like the Windows icon.
+cd ..; cd ..
+for s in 180 192 512; do
+  rsvg-convert -w $((s * 1024 / 824)) helper/icon/icon.svg -o /tmp/pad-deck-icon-big.png
+  magick /tmp/pad-deck-icon-big.png -gravity center -crop ${s}x${s}+0+0 +repage pwa/icon-$s.png
+done
+mv pwa/icon-180.png pwa/apple-touch-icon.png
+rm -f /tmp/pad-deck-icon-big.png
+echo "Made pwa/ home screen icons"

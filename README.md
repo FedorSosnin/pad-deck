@@ -3,7 +3,8 @@
 **A tactile, touch-first stream deck for OBS, built for the BigTreeTech Pad 7.**
 Big chrome-and-carbon keycaps that switch scenes and mute your mic, live status lights, and everything
 editable right on the screen. No phone, no extra app, no subscription. The Pad talks to OBS over your network.
-It also runs on the smaller **Creality Nebula Pad**: see [Pad Deck Lite](#creality-nebula-pad-pad-deck-lite).
+It also runs on the smaller **Creality Nebula Pad** ([Pad Deck Lite](#creality-nebula-pad-pad-deck-lite)), and on
+**any phone or tablet** through the free [Pad Deck Helper](#pad-deck-on-a-phone-or-tablet) app for Mac and Windows.
 
 ![Pad Deck](docs/screenshots/deck.png)
 
@@ -13,6 +14,8 @@ It also runs on the smaller **Creality Nebula Pad**: see [Pad Deck Lite](#creali
   hide sources. Keys light up to match OBS, and the bar shows OBS, Live and Rec status.
 - **More than OBS:** keys can open a website or an app, run a Shortcut or press a key combination on your
   computer (with the [Pad Deck Helper](#pad-deck-helper)), switch a smart plug, or send any web request.
+- **No Pad needed:** the [Pad Deck Helper](#pad-deck-on-a-phone-or-tablet) turns any phone, tablet or
+  browser on your Wi-Fi into the same deck. Scan a QR code and add it to the home screen.
 - **Physical keycaps:** a dished face, a weighted edge, a satisfying press, a plastic "click" through the
   Pad's speaker on press and release, and an optional buzz from the vibration motor.
 - **Pages:** swipe up and down (the page follows your finger), or use the ▲/▼ rail. Swiping past the last
@@ -69,14 +72,37 @@ the OBS screen opens on its own: type your computer's name or IP and tap **Save 
 
 - `PAD_DECK_SSH_KEY="ssh-ed25519 AAAA…"` before the command lets you SSH in as `deck`.
 - Run it locally with `python3 server.py` and open <http://localhost:8099>.
+- Three servers answer the web app: `server.py` (Pad, Nebula) and the Helper apps (Mac, Windows).
+  [docs/server-api.md](docs/server-api.md) is the contract they share; `python3 tools/check-server.py http://HOST:8099`
+  checks any of them.
 - `setup/deploy.sh` pushes changes to a Pad, `setup/pull-from-pad.sh` backs its layouts up, and
   `setup/make-icons.py` regenerates the icon library.
 </details>
 
+## Pad Deck on a phone or tablet
+
+No Pad? **Pad Deck Helper** (below) also serves the whole deck to any browser on your Wi-Fi: phones, tablets, an
+old laptop.
+
+1. Install and open Pad Deck Helper on the computer that runs OBS.
+2. In its menu (menu bar on a Mac, tray by the clock on Windows), choose **Use on a Phone or Tablet…**.
+3. Scan the QR code with the phone or tablet. The deck opens already paired. (Or type the address it shows and
+   enter the pairing code.)
+4. Add it to the home screen: Safari → Share → **Add to Home Screen**, or Chrome → ⋮ → **Add to Home screen**.
+   It then opens full screen, like an app, and keeps the screen on while it's open.
+
+OBS connects to the computer running the Helper unless you set another one in ☰ → OBS. Keys, pages, icons,
+layouts and smart plugs work the same as on a Pad. Website keys can open on the computer or on the phone itself.
+To bring your keys over from a Pad, use **Copy your layout from a Pad** on the same page.
+
+Every device other than the computer itself needs the pairing code. On a Pad, other devices can open the deck
+at `http://PAD-ADDRESS:8099` too; once a Helper code is set on the Pad (Menu → Helper), they need that code.
+
 ## Pad Deck Helper
 
-Keys that open websites or apps, run Shortcuts or press keys need **Pad Deck Helper**, a small app for the computer:
-download it from the [latest release](https://github.com/FedorSosnin/pad-deck/releases/latest).
+Keys that open websites or apps, run Shortcuts or press keys need **Pad Deck Helper**, a small app for the computer.
+It's also what runs the deck on [phones and tablets](#pad-deck-on-a-phone-or-tablet). Download it from the
+[latest release](https://github.com/FedorSosnin/pad-deck/releases/latest).
 
 **Mac** (macOS 13 or later): unzip **Pad-Deck-Helper-Mac.zip** and drag **Pad Deck Helper** into Applications, then
 open it. It isn't notarized by Apple yet, so the first time macOS blocks it: open System Settings → Privacy &
@@ -88,7 +114,8 @@ Windows may say it protected your PC: click **More info → Run anyway**, and al
 asked. It lives in the tray by the clock; turn on *Start with Windows* in its menu to have it start on its own. *Press keys* works with Ctrl, Shift, Alt and
 Win (cmd counts as Ctrl) plus media keys: `playpause`, `next`, `previous`, `mute`, `volumeup`, `volumedown`.
 
-Both show a pairing code when first opened. On the Pad, open ☰ → **Helper** and enter the code (and the computer's
+On a Mac, allow it to find devices on your local network when asked: phones and smart plugs need that. On
+Windows, allow it on private networks. Both show a pairing code when first opened. On the Pad, open ☰ → **Helper** and enter the code (and the computer's
 name, if it isn't the one running OBS). Build them yourself with `helper/build-app.sh` (Mac) or
 `helper\windows\build.cmd` (Windows, nothing to install).
 

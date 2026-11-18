@@ -5,3 +5,4 @@ __pycache__/
 *.img
 dist/
 helper/windows/PadDeckHelper.exe
+helper/windows/web.zip

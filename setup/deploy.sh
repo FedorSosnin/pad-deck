@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 KEY="$HOME/.ssh/pad-deck"
 PAD="deck@pad-deck.local"
 
-rsync -a --exclude .claude --exclude setup --exclude layout.json --exclude layouts --exclude settings.json --exclude icons -e "ssh -i $KEY" ./ "$PAD:pad-deck/"
+rsync -a --exclude .claude --exclude setup --exclude helper --exclude tools --exclude dist --exclude layout.json --exclude layouts --exclude settings.json --exclude icons -e "ssh -i $KEY" ./ "$PAD:pad-deck/"
 rsync -a --ignore-existing -e "ssh -i $KEY" icons/ "$PAD:pad-deck/icons/"   # add new icons, never overwrite
 rsync -a -e "ssh -i $KEY" icons/deck-*.svg "$PAD:pad-deck/icons/"            # except the generated library (make-icons.py)
 ssh -i "$KEY" "$PAD" 'sudo systemctl restart pad-deck-server pad-deck-kiosk'

@@ -1,7 +1,9 @@
 // Pad Deck Helper: a menu bar app that lets Pad Deck keys do things on this Mac: open a website or an app,
-// run a Shortcut, press a key combination. The Pad sends it requests over the network; each must carry the
-// pairing code shown in the menu. Built into "Pad Deck Helper.app" by build-app.sh.
+// run a Shortcut, press a key combination. It also serves the whole deck to any browser on the network on port
+// 8099 (DeckServer.swift), so a phone or tablet can be a Pad Deck. Every request from another device must carry
+// the pairing code shown in the menu. Built into "Pad Deck Helper.app" by build-app.sh.
 //
+// Port 8098, for a Pad:
 // GET  /ping        is the helper there, and is the pairing code right?
 // GET  /apps        installed app names (for the key editor)
 // GET  /shortcuts   Shortcuts names
@@ -140,90 +142,34 @@ func run(_ a: [String: Any]) throws -> String {
     }
 }
 
-// ---------- Web server ----------
+// ---------- Keys sent from a Pad (port 8098) ----------
 
-func respond(_ c: NWConnection, _ status: Int, _ obj: [String: Any]) {
-    let body = (try? JSONSerialization.data(withJSONObject: obj)) ?? Data()
-    let reason = [200: "OK", 400: "Bad Request", 401: "Unauthorized", 404: "Not Found", 503: "Service Unavailable"][status] ?? "OK"
-    var out = Data("HTTP/1.1 \(status) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n".utf8)
-    out.append(body)
-    c.send(content: out, completion: .contentProcessed { _ in c.cancel() })
-}
-
-func handle(_ c: NWConnection, method: String, path: String, headers: [String: String], body: Data) {
-    // Constant-time comparison of the pairing code.
-    let given = Array((headers["x-pad-deck-code"] ?? "").utf8), want = Array(pairingCode.utf8)
-    var diff = given.count ^ want.count
-    for (i, b) in want.enumerated() { diff |= Int(b ^ (i < given.count ? given[i] : 0)) }
-    guard diff == 0 else { return respond(c, 401, ["error": "Wrong pairing code"]) }
-    switch (method, path) {
+func helperHandle(_ r: Request) -> Response {
+    guard sameCode(r.headers["x-pad-deck-code"], pairingCode) else { return json(["error": "Wrong pairing code"], 401) }
+    switch (r.method, r.path) {
     case ("GET", "/ping"):
-        respond(c, 200, ["ok": true, "computer": Host.current().localizedName ?? "Mac", "mac": true, "paused": paused])
+        return json(["ok": true, "computer": Host.current().localizedName ?? "Mac", "mac": true, "paused": paused])
     case ("GET", "/apps"):
-        respond(c, 200, ["apps": appNames()])
+        return json(["apps": appNames()])
     case ("GET", "/shortcuts"):
-        respond(c, 200, ["shortcuts": shortcutNames()])
+        return json(["shortcuts": shortcutNames()])
     case ("POST", "/run"):
-        if paused { return respond(c, 503, ["error": "Pad Deck Helper is paused (menu bar on the Mac)"]) }
+        if paused { return json(["error": "Pad Deck Helper is paused (menu bar on the Mac)"], 503) }
         do {
-            let a = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
-            respond(c, 200, ["ok": true, "message": try run(a)])
+            let message = try run(r.json as? [String: Any] ?? [:])
             DispatchQueue.main.async { Menu.shared.flash() }
+            return json(["ok": true, "message": message])
         } catch let e as Failure {
-            respond(c, 400, ["error": e.message])
+            return json(["error": e.message], 400)
         } catch {
-            respond(c, 400, ["error": error.localizedDescription])
+            return json(["error": error.localizedDescription], 400)
         }
     default:
-        respond(c, 404, ["error": "Not found"])
+        return json(["error": "Not found"], 404)
     }
 }
 
-func receive(_ c: NWConnection, _ buffer: Data) {
-    c.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, done, error in
-        var buf = buffer
-        if let data { buf.append(data) }
-        if let end = buf.range(of: Data("\r\n\r\n".utf8)) {
-            let lines = String(decoding: buf[..<end.lowerBound], as: UTF8.self).components(separatedBy: "\r\n")
-            let first = lines[0].split(separator: " ").map(String.init)
-            var headers: [String: String] = [:]
-            for l in lines.dropFirst() {
-                if let i = l.firstIndex(of: ":") {
-                    headers[l[..<i].lowercased()] = l[l.index(after: i)...].trimmingCharacters(in: .whitespaces)
-                }
-            }
-            let length = Int(headers["content-length"] ?? "0") ?? 0
-            let body = buf[end.upperBound...]
-            if body.count >= length, first.count >= 2 {
-                return handle(c, method: first[0], path: first[1], headers: headers, body: Data(body.prefix(length)))
-            }
-        }
-        if done || error != nil || buf.count > 1_000_000 { return c.cancel() }
-        receive(c, buf)
-    }
-}
-
-var listener: NWListener?
-func startServer() {
-    do {
-        let l = try NWListener(using: .tcp, on: NWEndpoint.Port(rawValue: port)!)
-        l.newConnectionHandler = { c in
-            c.start(queue: .global())
-            receive(c, Data())
-        }
-        l.stateUpdateHandler = { state in
-            if case .failed(let e) = state {
-                NSLog("Pad Deck Helper: listener failed: \(e)")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { startServer() }   // e.g. the port was still busy
-            }
-        }
-        l.start(queue: .global())
-        listener = l
-    } catch {
-        NSLog("Pad Deck Helper: can't listen on \(port): \(error)")
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { startServer() }
-    }
-}
+let helperServer = HTTPServer(port: port, handler: helperHandle)
 
 // ---------- Menu bar ----------
 
@@ -236,7 +182,9 @@ final class Menu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.delegate = self
         item.menu = menu
         updateIcon()
-        startServer()
+        prepareData()
+        helperServer.start()
+        deckServer.start()
         if !defaults.bool(forKey: "welcomed") {
             defaults.set(true, forKey: "welcomed")
             welcome()
@@ -261,8 +209,9 @@ final class Menu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         let alert = NSAlert()
         alert.messageText = "Pad Deck Helper is running"
-        alert.informativeText = "It lives in the menu bar. To have it open when you log in, turn on Open at Login in its menu.\n\nOn the Pad: Menu → Helper, enter this "
-            + "pairing code:\n\n\(pairingCode)\n\nand this Mac's name: \(ProcessInfo.processInfo.hostName)"
+        alert.informativeText = "It lives in the menu bar. To have it open when you log in, turn on Open at Login in its menu.\n\n"
+            + "Pairing code: \(pairingCode)\n\nOn a Pad: Menu → Helper, enter the code and this Mac's name "
+            + "(\(ProcessInfo.processInfo.hostName)).\n\nNo Pad? Use a phone or tablet: Use on a Phone or Tablet… in the menu."
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Copy Code")
         if alert.runModal() == .alertSecondButtonReturn { copyCode() }
@@ -275,6 +224,9 @@ final class Menu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         title.isEnabled = false
         menu.addItem(title)
         add(menu, "Pairing Code: \(pairingCode)  (Copy)", #selector(copyCode))
+        menu.addItem(.separator())
+        add(menu, "Open Pad Deck", #selector(openDeck), "o")
+        add(menu, "Use on a Phone or Tablet…", #selector(openConnect))
         menu.addItem(.separator())
         add(menu, paused ? "Resume" : "Pause", #selector(togglePause), "p")
         let login = add(menu, "Open at Login", #selector(toggleLogin))
@@ -313,10 +265,8 @@ final class Menu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openAccessibility()
     }
 
+    @objc func openDeck() { NSWorkspace.shared.open(URL(string: "http://localhost:\(deckPort)/")!) }
+    @objc func openConnect() { NSWorkspace.shared.open(URL(string: "http://localhost:\(deckPort)/connect.html")!) }
+
     @objc func quit() { NSApp.terminate(nil) }
 }
-
-let app = NSApplication.shared
-app.delegate = Menu.shared
-app.setActivationPolicy(.accessory)
-app.run()
