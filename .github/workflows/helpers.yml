@@ -8,7 +8,18 @@ on:
 permissions:
   contents: write
 jobs:
+  # A release's tag must match the VERSION file: that's the version the apps and Pads report.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag matches VERSION
+        if: github.event_name == 'release'
+        run: |
+          v="$(tr -d '[:space:]' < VERSION)"
+          [ "${GITHUB_REF_NAME}" = "v$v" ] || { echo "::error::Release ${GITHUB_REF_NAME} but VERSION says $v. Bump VERSION first."; exit 1; }
   windows:
+    needs: version
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,11 +37,12 @@ jobs:
         env: { GH_TOKEN: "${{ github.token }}" }
         run: gh release upload "${{ github.event.release.tag_name }}" Pad-Deck-Helper-Windows.zip --clobber
   mac:
+    needs: version
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: helper/build-app.sh "$([ "$GITHUB_EVENT_NAME" = release ] && echo "${GITHUB_REF_NAME#v}" || echo 1.0)"
+        run: helper/build-app.sh
       - uses: actions/upload-artifact@v4
         with: { name: Pad-Deck-Helper-Mac, path: dist/Pad-Deck-Helper-Mac.zip }
       - name: Attach to the release

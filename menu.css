@@ -78,3 +78,6 @@ body.osk-open.osk-hidden .menu-panel { height: 100vh; }
 .obs-form .row .hint { flex: 1; }
 .hint pre.cmd { margin: 8px 0; padding: 10px 12px; background: #0c0d0f; border-radius: 8px; color: #d6d9df;
   font: 12px/1.4 ui-monospace, Menlo, monospace; white-space: pre-wrap; word-break: break-all; user-select: text; -webkit-user-select: text; }
+/* System → updates: version and status on the left, Check / Install on the right. */
+.card.update { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.card.update .row { gap: 10px; }

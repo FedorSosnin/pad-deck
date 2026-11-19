@@ -77,6 +77,8 @@ the OBS screen opens on its own: type your computer's name or IP and tap **Save 
 - Three servers answer the web app: `server.py` (Pad, Nebula) and the Helper apps (Mac, Windows).
   [docs/server-api.md](docs/server-api.md) is the contract they share; `python3 tools/check-server.py http://HOST:8099`
   checks any of them.
+- To release: bump `VERSION`, commit, then publish a release tagged `v` + that version. The Helper apps get
+  built and attached, and every Pad Deck sees the update within a few hours.
 - `setup/deploy.sh` pushes changes to a Pad, `setup/pull-from-pad.sh` backs its layouts up, and
   `setup/make-icons.py` regenerates the icon library.
 </details>
@@ -140,6 +142,20 @@ name, if it isn't the one running OBS). Build them yourself with `helper/build-a
 on your network and listed by name (some newer Kasa models only work through TP-Link's cloud and can't be used).
 Shelly and Tasmota plugs work by IP address. *Web request* covers anything else with a local web API, such as Home
 Assistant webhooks.
+
+## Updates
+
+Every Pad Deck updates itself over Wi-Fi, straight from this page's releases: the Pad 7, the Nebula Pad and Pad
+Deck Helper on a Mac or PC. Nothing needs to be plugged in. ☰ → **System** shows the version, with **Check for
+update** and **Install**. With **Update automatically** on, a new version installs by itself between 3 and 5 at night,
+never while OBS is streaming or recording. Your keys, settings, saved layouts and icons stay. The Helper also has
+**Check for Updates…** in its menu.
+
+On a Mac, an update to the Helper may ask again to allow it to press keys and find devices on your network,
+because the app isn't signed by Apple yet.
+
+Pads running v1.3.0 or older need one last update the old way (the install line for a Nebula, a fresh card or
+`setup/deploy.sh` for a Pad 7); from then on they update themselves.
 
 ## Creality Nebula Pad (Pad Deck Lite)
 

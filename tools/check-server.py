@@ -77,7 +77,7 @@ if st == 200:
 
 st, s = call("GET", "/api/settings")
 keys = {"sound", "vibrate", "volume", "leds", "obsHost", "obsPort", "obsPassword", "brightness", "helperHost",
-        "helperPort", "helperCode"}
+        "helperPort", "helperCode", "autoUpdate"}
 check("GET /api/settings has every key", st == 200 and isinstance(s, dict) and keys <= set(s), (st, s))
 if st == 200:
     st, j = call("PUT", "/api/settings", s)
@@ -124,6 +124,12 @@ check("run http with a bad address → 400", st == 400 and "http://" in str(j.ge
 st, j = call("POST", "/api/run", {"type": "plug", "brand": "kasa", "ip": "not an ip!", "do": "toggle"}) if a_run \
     else (400, {"error": "skipped"})
 check("run plug with a bad address → 400", st == 400 and isinstance(j, dict) and "error" in j, (st, j))
+
+st, j = call("POST", "/api/busy")
+check("POST /api/busy", st == 200 and j == {"ok": True}, (st, j))
+if dev.get("local") or helper or dev.get("device") == "nebula":
+    st, j = call("GET", "/api/update")
+    check("GET /api/update", st == 200 and isinstance(j, dict) and j.get("version") and "available" in j, (st, j))
 
 st, j = call("POST", "/api/buzz")
 check("POST /api/buzz", st == 200 and j == {"ok": True}, (st, j))

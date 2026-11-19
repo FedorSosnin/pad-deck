@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=dist
 APP="$OUT/Pad Deck Helper.app"
-VERSION="${1:-1.0}"
+VERSION="${1:-$(tr -d "[:space:]" < VERSION)}"
 # swiftc and the SDK are used directly: xcrun fails in a shell running under Rosetta.
 DEV=$(xcode-select -p)
 SWIFTC="$DEV/usr/bin/swiftc"; [ -x "$SWIFTC" ] || SWIFTC="$DEV/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"

@@ -65,7 +65,7 @@ const Menu = (() => {
   Device.info.then(({ device: d, local }) => {
     device = d;
     const hide = d === "nebula" ? ["sound", "terminal"]
-      : d === "helper" ? ["system", "wifi", "terminal", "helper"]
+      : d === "helper" ? ["wifi", "terminal", "helper"]
       : !local ? ["system", "wifi", "terminal"] : [];
     for (const id of hide) {
       SECTIONS.splice(SECTIONS.findIndex((s) => s.id === id), 1);
@@ -228,6 +228,57 @@ const Menu = (() => {
       onPad ? toggle("Vibration", "Short buzz from the Pad's vibration motor on every press.", "vibrate")
         : "vibrate" in navigator ? toggle("Vibration", "Short buzz on every press, on phones that can.", "vibrate") : null,
     );
+  }
+
+  // ---------- Updates (in System): this version, Check for update, Install, Update automatically ----------
+
+  function renderUpdate(el) {
+    const what = device === "helper" ? "Pad Deck Helper" : "Pad Deck";
+    const title = h("div", { className: "big", textContent: what });
+    const status = h("div", { className: "hint", textContent: "Checking for updates…" });
+    const install = button("Install update", () => go(), "primary");
+    install.hidden = true;
+    const check = button("Check for update", () => load(true));
+    const auto = h("button", { className: `switch${Feedback.settings.autoUpdate !== false ? " on" : ""}` }, h("i"));
+    auto.onclick = async () => { auto.classList.toggle("on"); await Feedback.save({ autoUpdate: auto.classList.contains("on") }); };
+    el.append(
+      h("div", { className: "card update" }, h("div", {}, title, status), h("div", { className: "row" }, check, install)),
+      h("div", { className: "card setting" }, h("div", {},
+        h("div", { className: "big", textContent: "Update automatically" }),
+        h("div", { className: "hint", textContent: "Installs new versions by itself between 3 and 5 at night, never while you're streaming or recording. Your keys and settings stay." })), auto),
+    );
+    let u = null;
+    function show() {
+      title.textContent = `${what} ${u.version === "0" ? "(older version)" : u.version}`;
+      install.hidden = !u.available || u.busy;
+      install.textContent = `Install ${u.latest}`;
+      status.textContent = u.busy ? `Installing ${u.latest}…`
+        : u.available ? `Version ${u.latest} is available.`
+        : u.error || (u.latest ? "Up to date." : "");
+    }
+    async function load(fresh) {
+      status.textContent = "Checking for updates…";
+      try { u = await api(`update${fresh ? "?check=1" : ""}`); show(); } catch (e) { status.textContent = e.message; }
+    }
+    // Install, then wait for the deck to come back on the new version and reload into it.
+    async function go() {
+      install.hidden = true; check.disabled = true;
+      const target = u.latest;
+      try { await api("update", { method: "POST" }); } catch (e) { status.textContent = e.message; check.disabled = false; return; }
+      status.textContent = `Installing ${target}… ${device === "helper" ? "The Helper restarts" : "The deck restarts"} in a minute.`;
+      const started = Date.now();
+      const poll = async () => {
+        try {
+          const now = await fetch("api/update", { cache: "no-store" }).then((r) => r.json());
+          if (now.version === target) return location.reload();
+          if (now.error && !now.busy) { u = now; show(); check.disabled = false; return; }
+        } catch {}                                               // restarting: not answering for a moment
+        if (Date.now() - started < 5 * 60 * 1000) setTimeout(poll, 3000);
+        else status.textContent = "It's taking a while. Reload the page in a minute.";
+      };
+      setTimeout(poll, 4000);
+    }
+    load(false);
   }
 
   // ---------- OBS: which computer to control ----------
@@ -394,8 +445,10 @@ const Menu = (() => {
   // ---------- System ----------
 
   async function renderSystem(el) {
+    if (device === "helper") return renderUpdate(el);            // the Helper: just its version and updates
     const info = h("div", { className: "card kv", textContent: "Loading…" });
     el.append(info);
+    renderUpdate(el);
     try {
       const s = await api("system");
       info.replaceChildren(...[

@@ -16,7 +16,7 @@ let backupName = "Before last load"
 
 let defaultSettings: [String: Any] = [
     "sound": true, "vibrate": true, "volume": 0.6, "leds": true, "obsHost": "", "obsPort": 4455, "obsPassword": "",
-    "brightness": 180, "helperHost": "", "helperPort": 8098, "helperCode": "",
+    "brightness": 180, "helperHost": "", "helperPort": 8098, "helperCode": "", "autoUpdate": true,
 ]
 
 let contentTypes = ["html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8",
@@ -283,6 +283,19 @@ func route(_ r: Request) throws -> Response {
         return json(["states": plugStates(r.json as? [[String: Any]] ?? [])])
     case ("POST", "/api/buzz"):
         return json(["ok": true])
+    case ("POST", "/api/busy"):
+        Updater.shared.onAir = Date()
+        return json(["ok": true])
+    case ("GET", "/api/update"):
+        if r.query["check"] == "1" || Updater.shared.checked == nil { Updater.shared.check() }
+        return json(Updater.shared.state())
+    case ("POST", "/api/update"):
+        if Updater.shared.latest == nil { Updater.shared.check() }
+        guard Updater.shared.available, let latest = Updater.shared.latest else {
+            return json(["error": Updater.shared.error ?? "Pad Deck Helper is up to date"], 400)
+        }
+        Updater.shared.start()
+        return json(["ok": true, "message": "Updating to \(latest)…"])
     case ("GET", "/api/connect"):
         guard r.local else { return json(["error": "Only on this Mac"], 403) }
         return json(["addresses": ipv4Addresses(), "port": Int(deckPort), "code": pairingCode,

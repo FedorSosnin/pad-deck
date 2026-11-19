@@ -51,7 +51,7 @@ static class Deck
     {
         return new Dictionary<string, object> {
             { "sound", true }, { "vibrate", true }, { "volume", 0.6 }, { "leds", true }, { "obsHost", "" }, { "obsPort", 4455 },
-            { "obsPassword", "" }, { "brightness", 180 }, { "helperHost", "" }, { "helperPort", 8098 }, { "helperCode", "" } };
+            { "obsPassword", "" }, { "brightness", 180 }, { "helperHost", "" }, { "helperPort", 8098 }, { "helperCode", "" }, { "autoUpdate", true } };
     }
 
     static readonly Dictionary<string, string> Types = new Dictionary<string, string> {
@@ -259,6 +259,13 @@ static class Deck
         return list;
     }
 
+    /// "Update automatically" (System section), on unless turned off.
+    public static bool AutoUpdate()
+    {
+        var v = Get(LoadSettings(), "autoUpdate", true);
+        return !(v is bool) || (bool)v;
+    }
+
     // ---------- Routes ----------
 
     static Resp Err(string message, int status) { return Http.JsonResp(new Dictionary<string, object> { { "error", message } }, status); }
@@ -376,6 +383,20 @@ static class Deck
                 return Http.JsonResp(new Dictionary<string, object> { { "states", Plugs.States(r.Json as object[] ?? new object[0]) } });
             case "POST /api/buzz":
                 return Ok();
+            case "POST /api/busy":
+                Updater.OnAir = DateTime.UtcNow;
+                return Ok();
+            case "GET /api/update":
+            {
+                string check;
+                if ((r.Query.TryGetValue("check", out check) && check == "1") || Updater.Checked == DateTime.MinValue) Updater.Check();
+                return Http.JsonResp(Updater.State(AutoUpdate()));
+            }
+            case "POST /api/update":
+                if (Updater.Latest == null) Updater.Check();
+                if (!Updater.Available) return Err(Updater.Error ?? "Pad Deck Helper is up to date", 400);
+                Updater.Start();
+                return Http.JsonResp(new Dictionary<string, object> { { "ok", true }, { "message", "Updating to " + Updater.Latest + "…" } });
             case "GET /api/connect":
                 if (!r.Local) return Err("Only on this PC", 403);
                 return Http.JsonResp(new Dictionary<string, object> {

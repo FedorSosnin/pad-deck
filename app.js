@@ -261,6 +261,8 @@ async function checkPlugs() {
   } catch {} finally { plugsBusy = false; }
 }
 setInterval(() => { if (!document.hidden) checkPlugs(); }, 4000);
+// While OBS is streaming or recording, the server holds back automatic updates.
+setInterval(() => { if (state.stream || state.rec) fetch("api/busy", { method: "POST" }).catch(() => {}); }, 60000);
 
 // Non-OBS actions run on the Pad's server. Resolves to a short message for the screen.
 async function runAction(a) {

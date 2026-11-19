@@ -215,6 +215,8 @@ static class Server
         Http.Listen(8098, 1000000, Handle);
         Deck.Prepare();
         Http.Listen(Deck.Port, 8000000, Deck.Handle);
+        Updater.CleanUp();
+        Updater.Watch(Deck.AutoUpdate);
     }
 
     static Resp Handle(Req r)
@@ -336,12 +338,38 @@ class Tray : ApplicationContext
         m.Items.Add("Open Pad Deck", null, (s, e) => Open("http://127.0.0.1:" + Deck.Port + "/"));
         m.Items.Add("Use on a phone or tablet…", null, (s, e) => Open("http://127.0.0.1:" + Deck.Port + "/connect.html"));
         m.Items.Add(new ToolStripSeparator());
+        var update = new ToolStripMenuItem(Updater.Busy ? "Installing update…" : Updater.Available ? "Install update (" + Updater.Latest + ")…" : "Check for updates…");
+        update.Enabled = !Updater.Busy;
+        update.Click += (s, e) => CheckUpdates();
+        m.Items.Add(update);
         m.Items.Add(Settings.Paused ? "Resume" : "Pause", null, (s, e) => { Settings.Paused = !Settings.Paused; UpdateIcon(); });
         var start = new ToolStripMenuItem("Start with Windows") { Checked = Settings.StartWithWindows };
         start.Click += (s, e) => { Settings.StartWithWindows = !Settings.StartWithWindows; };
         m.Items.Add(start);
         m.Items.Add(new ToolStripSeparator());
         m.Items.Add("Quit Pad Deck Helper", null, (s, e) => { icon.Visible = false; Environment.Exit(0); });
+    }
+
+    /// Check now; then say it's up to date, or offer to install.
+    void CheckUpdates()
+    {
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            Updater.Check();
+            ui.BeginInvoke(new Action(() =>
+            {
+                if (Updater.Error != null) { MessageBox.Show(Updater.Error, "Pad Deck Helper"); return; }
+                if (!Updater.Available)
+                {
+                    MessageBox.Show("Pad Deck Helper is up to date (version " + Updater.Version + ").", "Pad Deck Helper");
+                    return;
+                }
+                var r = MessageBox.Show("Pad Deck Helper " + Updater.Latest + " is available (you have " + Updater.Version + ").\n\n" +
+                    "Install it now? It takes a few seconds and starts again by itself.", "Pad Deck Helper",
+                    MessageBoxButtons.YesNo, MessageBoxIcon.Information);
+                if (r == DialogResult.Yes) Updater.Start();
+            }));
+        });
     }
 
     static void Open(string url)
@@ -362,11 +390,16 @@ class Tray : ApplicationContext
     }
 
     [STAThread]
-    static void Main()
+    static void Main(string[] args)
     {
         bool fresh;
-        using (new Mutex(true, "PadDeckHelper-single-instance", out fresh))
+        using (var mutex = new Mutex(true, "PadDeckHelper-single-instance", out fresh))
         {
+            // Just updated: the old copy is quitting, so wait for it.
+            if (!fresh && args.Contains("--updated"))
+            {
+                try { fresh = mutex.WaitOne(15000); } catch (AbandonedMutexException) { fresh = true; }
+            }
             if (!fresh) { MessageBox.Show("Pad Deck Helper is already running: look for its icon by the clock.", "Pad Deck Helper"); return; }
             Application.EnableVisualStyles();
             Application.Run(new Tray());

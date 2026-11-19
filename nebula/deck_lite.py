@@ -1019,9 +1019,17 @@ class Deck:
 
     def watch_plugs(self):
         """Smart plugs don't announce changes: ask the server every few seconds about plugs that have keys."""
+        on_air_told = 0
         while True:
             self.plug_check.wait(4)
             self.plug_check.clear()
+            # While streaming or recording, tell the server once a minute, so it never updates itself mid-show.
+            if (self.state["stream"] or self.state["rec"]) and time.time() - on_air_told > 60:
+                on_air_told = time.time()
+                try:
+                    urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:8099/api/busy", method="POST", data=b""), timeout=5).close()
+                except OSError:
+                    pass
             plugs = {}
             for p in self.layout.get("pages", []):
                 for b in p.get("buttons", []):

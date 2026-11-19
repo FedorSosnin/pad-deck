@@ -51,11 +51,21 @@ it in the browser, and sends it from then on. A link ending in `#code=123456` fi
 | `GET /api/plugs` | → `{"plugs": [{name, ip, outlet}]}` | Kasa plugs found on the network |
 | `POST /api/plugs/state` | `[{brand, ip, outlet}]` → `{"states": [true/false/null]}` | |
 | `POST /api/buzz` | → `{"ok": true}` | Pad 7 vibration; does nothing elsewhere or for other devices |
+| `GET /api/update[?check=1]` | → `{version, latest, available, busy, error, notes, checked, auto}` | `check=1` asks GitHub now. Pad 7: its own screen only |
+| `POST /api/update` | → `{"ok": true, "message"}` | installs the newest release and restarts; 400 `{"error"}` if up to date |
+| `POST /api/busy` | → `{"ok": true}` | OBS is streaming or recording: no automatic update for 5 minutes |
 | `GET /api/connect` | → `{"addresses": [...], "port", "code", "computer"}` | **Helper only, loopback only.** For the phone set-up page |
 | Pad-only | `/api/system`, `/api/wifi`, `/api/leds`, `/api/term` | the Helper answers 404 |
 
 Default settings: `sound true, vibrate true, volume 0.6, leds true, obsHost "", obsPort 4455, obsPassword "",
-brightness 180, helperHost "", helperPort 8098, helperCode ""`.
+brightness 180, helperHost "", helperPort 8098, helperCode "", autoUpdate true`.
+
+## Updates
+
+Each server checks GitHub's latest release a few times a day and, with `autoUpdate` on, installs it by itself
+between 3 and 5 at night, unless a screen said OBS is live in the last 5 minutes (`POST /api/busy`). The `VERSION`
+file is the version a Pad reports; the Helpers report their own (built from it). A release's tag must be
+`v` + `VERSION`; the Helper apps workflow refuses to build a release that doesn't match.
 
 ### Actions (`POST /api/run`)
 

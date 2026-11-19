@@ -21,6 +21,9 @@ POST /api/buzz                pulse the Pad 7 vibration motor
 POST /api/run                 {"type": ..., ...} run a key's non-OBS action: a web request, or (through the
                               Pad Deck Helper on your computer) open a website/app, run a Shortcut, press keys
 GET  /api/helper?what=ping|apps|shortcuts   ask the Pad Deck Helper (connection test, lists for the editor)
+GET  /api/update[?check=1]    this version, the newest release, and whether an update is waiting
+POST /api/update              install the newest release (keeps keys, settings, layouts, icons) and restart
+POST /api/busy                OBS is streaming or recording: no automatic update for the next few minutes
 POST /api/leds                set the Pad 7's top RGB LEDs, {"colors": ["#rrggbb", ...]}  (Pad only)
 
 Other devices on the network: once a Helper pairing code is set (Menu → Helper), every /api call from them needs
@@ -37,6 +40,7 @@ import base64
 import fcntl
 import hashlib
 import hmac
+import io
 import json
 import os
 import pty
@@ -47,6 +51,8 @@ import socket
 import struct
 import subprocess
 import sys
+import tarfile
+import tempfile
 import termios
 import threading
 import time
@@ -65,7 +71,8 @@ ICON_TYPES = (".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif")
 DEFAULT_SETTINGS = {"sound": True, "vibrate": True, "volume": 0.6, "leds": True,
                     "obsHost": "", "obsPort": 4455, "obsPassword": "",  # OBS: Menu → OBS
                     "brightness": 180,  # screen backlight (Pad Deck Lite on the Nebula)
-                    "helperHost": "", "helperPort": 8098, "helperCode": ""}  # Pad Deck Helper: Menu → Helper
+                    "helperHost": "", "helperPort": 8098, "helperCode": "",  # Pad Deck Helper: Menu → Helper
+                    "autoUpdate": True}  # install new releases by itself, at night (Menu → System)
 VIBRATION = "/sys/class/leds/pad7_vibration/brightness"
 BTT_CFG = "/boot/system.cfg"   # BTT's boot script reconnects to the Wi-Fi named here
 LOCAL = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
@@ -552,6 +559,125 @@ def wifi_connect(ssid, password):
     return True, "Connected"
 
 
+# ---------- Updates: new GitHub releases, installed in place ----------
+
+REPO = "FedorSosnin/pad-deck"
+UA = {"User-Agent": "Pad-Deck-Updater", "Accept": "application/vnd.github+json"}
+# Not part of the app on a Pad (or yours to keep): never copied over by an update.
+UPDATE_SKIP = {".git", ".github", ".gitignore", "docs", "setup", "nebula", "helper", "tools", "dist", "layouts",
+               "layout.json", "settings.json", "build-image.sh", "README.md"}
+UPDATE = {"latest": None, "notes": "", "checked": 0, "error": None, "busy": False, "on_air": 0}
+UPDATE_LOCK = threading.Lock()
+
+
+def app_version():
+    try:
+        with open(os.path.join(ROOT, "VERSION")) as f:
+            return f.read().strip() or "0"
+    except OSError:
+        return "0"                                               # installed before versions were tracked
+
+
+def version_tuple(v):
+    return tuple(int(x) for x in re.findall(r"\d+", v)[:3]) or (0,)
+
+
+def check_update():
+    """Ask GitHub for the newest release. Keeps the answer in UPDATE."""
+    try:
+        req = urllib.request.Request("https://api.github.com/repos/%s/releases/latest" % REPO, headers=UA)
+        with urllib.request.urlopen(req, timeout=15) as r:
+            rel = json.load(r)
+        UPDATE.update(latest=rel["tag_name"].lstrip("v"), notes=(rel.get("body") or "")[:4000], error=None)
+    except (OSError, ValueError, KeyError) as e:
+        UPDATE["error"] = "Couldn't check for updates (%s)" % (getattr(e, "reason", None) or e)
+    UPDATE["checked"] = time.time()
+
+
+def update_state():
+    latest = UPDATE["latest"]
+    return {"version": app_version(), "latest": latest, "notes": UPDATE["notes"], "error": UPDATE["error"],
+            "available": bool(latest) and version_tuple(latest) > version_tuple(app_version()),
+            "busy": UPDATE["busy"], "checked": UPDATE["checked"], "auto": bool(load_settings()["autoUpdate"])}
+
+
+def copy_tree(src, dst, skip=()):
+    os.makedirs(dst, exist_ok=True)
+    for name in os.listdir(src):
+        if name in skip:
+            continue
+        s, t = os.path.join(src, name), os.path.join(dst, name)
+        if os.path.isdir(s):
+            shutil.copytree(s, t, dirs_exist_ok=True)            # merges, so icons you uploaded stay
+        else:
+            shutil.copy2(s, t)
+
+
+def install_update():
+    """Download the newest release and put it in place of this one, then restart. Runs in its own thread."""
+    tag = "v" + UPDATE["latest"]
+    try:
+        url = "https://github.com/%s/archive/refs/tags/%s.tar.gz" % (REPO, tag)
+        data = urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=300).read()
+        tmp = tempfile.mkdtemp(dir=os.path.dirname(ROOT))       # same disk as the app
+        try:
+            tarfile.open(fileobj=io.BytesIO(data)).extractall(tmp)
+            src = os.path.join(tmp, os.listdir(tmp)[0])
+            if not all(os.path.exists(os.path.join(src, f)) for f in ("server.py", "index.html")):
+                raise ValueError("the download doesn't look like Pad Deck")
+            copy_tree(src, ROOT, UPDATE_SKIP)
+            write_atomic(os.path.join(ROOT, "VERSION"), (UPDATE["latest"] + "\n").encode())
+            if DEVICE == "nebula":                               # Pad Deck Lite's screen app sits next to the web app
+                d = os.path.dirname(ROOT)
+                lite = os.path.join(d, "lite")
+                shutil.copy2(os.path.join(src, "nebula", "deck_lite.py"), lite)
+                copy_tree(os.path.join(src, "nebula", "assets"), os.path.join(lite, "assets"))
+                for name in ("S99zpad_deck", "install.sh", "uninstall.sh"):
+                    shutil.copy2(os.path.join(src, "nebula", name), d)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+    except (OSError, ValueError, tarfile.TarError) as e:
+        UPDATE.update(busy=False, error="The update didn't install (%s). Nothing was changed." % e)
+        return
+    time.sleep(1)
+    restart_deck()
+
+
+def restart_deck():
+    """Start again on the new files: systemd (Pad 7) or the start-up loops (Nebula) bring everything back."""
+    if DEVICE == "nebula":
+        for pid in os.listdir("/proc"):
+            try:
+                with open("/proc/%s/cmdline" % pid, "rb") as f:
+                    if b"deck_lite.py" in f.read():
+                        os.kill(int(pid), signal.SIGTERM)
+            except (OSError, ValueError):
+                pass
+    os._exit(0)
+
+
+def start_update():
+    with UPDATE_LOCK:
+        if UPDATE["busy"]:
+            return False
+        UPDATE["busy"] = True
+    threading.Thread(target=install_update, daemon=True).start()
+    return True
+
+
+def watch_updates():
+    """Check a few times a day; with "Update automatically" on, install between 3 and 5 at night."""
+    time.sleep(60)
+    while True:
+        if time.time() - UPDATE["checked"] > 6 * 3600:
+            check_update()
+        st = update_state()
+        on_air = time.time() - UPDATE["on_air"] < 5 * 60              # a screen said OBS is live (POST /api/busy)
+        if st["available"] and st["auto"] and 3 <= time.localtime().tm_hour < 5 and not on_air:
+            start_update()
+        time.sleep(15 * 60)
+
+
 # ---------- System ----------
 
 def system_info():
@@ -763,6 +889,12 @@ class Handler(SimpleHTTPRequestHandler):
                     return self.send_json({**DEFAULT_SETTINGS, **json.load(f)})
             except (OSError, ValueError):
                 return self.send_json(DEFAULT_SETTINGS)
+        if path == "/api/update":
+            if not self.local_only():
+                return
+            if "check=1" in query or not UPDATE["checked"]:
+                check_update()
+            return self.send_json(update_state())
         if path == "/api/system":
             return self.local_only() and self.send_json(system_info())
         if path == "/api/wifi":
@@ -844,6 +976,19 @@ class Handler(SimpleHTTPRequestHandler):
             if self.is_local():                                    # a phone pressing keys doesn't buzz the Pad
                 threading.Thread(target=buzz, daemon=True).start()
             return self.send_json({"ok": True})
+        if self.path == "/api/busy":
+            UPDATE["on_air"] = time.time()
+            return self.send_json({"ok": True})
+        if self.path == "/api/update":
+            if not self.local_only():
+                return
+            if not UPDATE["latest"]:
+                check_update()
+            st = update_state()
+            if not st["available"]:
+                return self.send_json({"error": UPDATE["error"] or "Pad Deck is up to date"}, 400)
+            start_update()
+            return self.send_json({"ok": True, "message": "Updating to %s…" % st["latest"]})
         if not self.path.startswith(("/api/wifi", "/api/system/", "/api/leds")):
             return self.send_error(404)
         if not self.local_only():
@@ -867,5 +1012,6 @@ class Handler(SimpleHTTPRequestHandler):
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8099
     ThreadingHTTPServer.daemon_threads = True
+    threading.Thread(target=watch_updates, daemon=True).start()
     print(f"Pad Deck on http://0.0.0.0:{port}")
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()

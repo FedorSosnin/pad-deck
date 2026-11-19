@@ -185,6 +185,7 @@ final class Menu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         prepareData()
         helperServer.start()
         deckServer.start()
+        Updater.shared.watch()
         if !defaults.bool(forKey: "welcomed") {
             defaults.set(true, forKey: "welcomed")
             welcome()
@@ -228,6 +229,9 @@ final class Menu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add(menu, "Open Pad Deck", #selector(openDeck), "o")
         add(menu, "Use on a Phone or Tablet…", #selector(openConnect))
         menu.addItem(.separator())
+        let u = Updater.shared
+        add(menu, u.busy ? "Installing Update…" : u.available ? "Install Update (\(u.latest!))…" : "Check for Updates…", #selector(checkUpdates))
+            .isEnabled = !u.busy
         add(menu, paused ? "Resume" : "Pause", #selector(togglePause), "p")
         let login = add(menu, "Open at Login", #selector(toggleLogin))
         login.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -263,6 +267,30 @@ final class Menu: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Asking once puts Pad Deck Helper in the list, ready to switch on.
         _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
         openAccessibility()
+    }
+
+    /// Check now; then say it's up to date, or offer to install.
+    @objc func checkUpdates() {
+        DispatchQueue.global().async {
+            Updater.shared.check()
+            DispatchQueue.main.async {
+                let u = Updater.shared
+                NSApp.activate(ignoringOtherApps: true)
+                let alert = NSAlert()
+                if let e = u.error {
+                    alert.messageText = e
+                } else if u.available, let latest = u.latest {
+                    alert.messageText = "Pad Deck Helper \(latest) is available"
+                    alert.informativeText = "You have \(appVersion). It installs in a few seconds and opens again by itself."
+                    alert.addButton(withTitle: "Install")
+                    alert.addButton(withTitle: "Later")
+                } else {
+                    alert.messageText = "Pad Deck Helper is up to date"
+                    alert.informativeText = "Version \(appVersion)."
+                }
+                if alert.runModal() == .alertFirstButtonReturn, u.available { u.start() }
+            }
+        }
     }
 
     @objc func openDeck() { NSWorkspace.shared.open(URL(string: "http://localhost:\(deckPort)/")!) }
